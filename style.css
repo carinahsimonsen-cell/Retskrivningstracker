@@ -21,3 +21,9 @@
 .student-comparison.worse{color:#c42c36;font-weight:700}
 .student-comparison.neutral{color:inherit;font-weight:600}
 .class-average{color:#737d8e;white-space:nowrap;font-weight:400}
+
+/* Fælles registreringslayout: bred arbejdsflade og fast overblik. */
+.entry-layout{grid-template-columns:minmax(0,1.86fr) minmax(280px,1fr);align-items:start}
+.entry-form,.entry-overview{min-width:0}
+.entry-overview{position:sticky;top:18px;max-height:calc(100vh - 36px);overflow-y:auto;overscroll-behavior:contain}
+@media(max-width:1120px){.entry-layout{grid-template-columns:minmax(0,1fr)}.entry-overview{position:static;max-height:none;overflow:visible}}
