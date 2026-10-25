@@ -47,4 +47,210 @@ function readEntry(){let t=testBy(selectedTest),errors={},status=$('#entryStatus
 function previewEntry(){let out=$('#entryPreview'),r=readEntry();if(r.error){out.innerHTML='<p class="hint">Udfyld felterne for at se karakter og rigtighed.</p>';return}if(r.status){out.innerHTML=`<div class="subtlebox">Status: <strong>${esc(r.status)}</strong> · Indgår ikke i statistikken.</div>`;return}let t=testBy(selectedTest),max=t.categories.reduce((a,c)=>a+c.max,0),errors=Object.values(r.errors).reduce((a,b)=>a+b,0),correct=max-errors;out.innerHTML=`<div class="subtlebox"><div class="row between"><div><div class="hint">Rigtighed</div><div class="kpi">${pct(correct/max*100)}</div></div><div><div class="hint">Point</div><strong>${correct}/${max}</strong></div><div><div class="hint">Karakter</div><div class="kpi">${grade(t,correct)??'—'}</div></div></div></div>`}
 function saveEntry(next){let r=readEntry();if(r.error)return alert(r.error);let old=resultOf(selectedStudent,selectedTest);if(old)Object.assign(old,r);else db.results.push({id:uid(),sessionId:selectedSession,studentId:selectedStudent,testId:selectedTest,...r});if(!save())return;dirty=false;toast(r.status?'Fravær registreret':'Resultatet er gemt');if(next){let st=students(),idx=st.findIndex(s=>s.id===selectedStudent);if(st[idx+1])selectedStudent=st[idx+1].id}render();if(next){let target=document.querySelector('#resultPaste')||document.querySelector('#entryStudent');if(target){target.scrollIntoView({behavior:'instant',block:'start'});if(target.id==='resultPaste')target.focus({preventScroll:true})}}}
 function bindBackup(){$('#exportBackup').onclick=()=>{let blob=new Blob([JSON.stringify({...db,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='retskrivningstracker-backup-'+today()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Sikkerhedskopi downloadet')};$('#importBackup').onchange=async e=>{let f=e.target.files?.[0];if(!f)return;try{let x=JSON.parse(await f.text());if(!x||!['sessions','students','tests','results'].every(k=>Array.isArray(x[k])))throw Error('Ukendt filformat');if(!confirm('Erstat ALLE data i denne browser med sikkerhedskopien?'))return;db={version:1,sessions:x.sessions,students:x.students,tests:x.tests,results:x.results};selectedSession=db.sessions[0]?.id||'';selectedStudent='';selectedTest='';save();render();toast('Sikkerhedskopien er gendannet')}catch(err){alert('Filen kunne ikke indlæses: '+err.message)}}}
+
+// Prøvetracker: fælles elevdata, men adskilte prøvetyper og statistikker.
+let activeKind='spelling';
+const kindOf=t=>t?.kind==='reading'?'reading':'spelling';
+const allTests=tests;
+tests=function(){return allTests().filter(t=>kindOf(t)===activeKind)};
+const allResults=results;
+results=function(){return allResults().filter(r=>kindOf(testBy(r.testId))===activeKind)};
+const originalRender=render;
+render=function(){
+  if(selectedTest&&!tests().some(t=>t.id===selectedTest))selectedTest='';
+  originalRender();
+  const root=$('#view');
+  if(!session())return;
+  const selector=document.createElement('div');
+  selector.className='kind-selector';
+  selector.innerHTML=`<button type="button" data-kind="spelling" class="${activeKind==='spelling'?'chosen':''}">✎ Retskrivning</button><button type="button" data-kind="reading" class="${activeKind==='reading'?'chosen':''}">▤ Læsning</button>`;
+  root.prepend(selector);
+  selector.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    if(!canLeave())return;
+    activeKind=b.dataset.kind;selectedTest='';render();
+  });
+};
+const originalTestEditor=testEditor;
+testEditor=function(id){
+  if(activeKind==='spelling')return originalTestEditor(id);
+  let t=id?testBy(id):null;
+  modal(t?'Rediger læseprøve':'Opret læseprøve',`
+    <div class="field"><label>Prøvens navn</label><input id="readingName" value="${esc(t?.name||'')}" placeholder="Prøve 1 – 7. klasse"></div>
+    <div class="field"><label>Prøvedato</label><input id="readingDate" type="date" value="${esc(t?.date||today())}"></div>
+    <div class="field"><label>Karaktergrænser fra Alinea (valgfrit indtil resultater registreres)</label>
+    <textarea id="readingGrades" rows="7" placeholder="0 - 10    00&#10;11 - 20    02">${esc((t?.grades||[]).map(g=>`${g.min} - ${g.max}    ${g.grade}`).join('\n'))}</textarea></div>
+    <p class="hint">Tekst 1, Tekst 2 osv. samt pointtal hentes automatisk fra den første elevs Alinea-resultat. Ingen faste pointtal.</p>`,()=>{
+      let name=$('#readingName').value.trim(),date=$('#readingDate').value,g=parseGrades($('#readingGrades').value);
+      if(!name)return alert('Angiv prøvens navn.');
+      if($('#readingGrades').value.trim()&&!g.length)return alert('Karaktergrænserne blev ikke genkendt.');
+      if(t){Object.assign(t,{name,date,grades:g,kind:'reading'})}
+      else {t={id:uid(),sessionId:selectedSession,name,date,kind:'reading',categories:[],grades:g};db.tests.push(t)}
+      selectedTest=t.id;save();$('#modal').remove();page='entry';render();toast('Læseprøven er gemt');
+  },t?'Gem ændringer':'Opret læseprøve');
+};
+const originalRenderEntry=renderEntry;
+renderEntry=function(){
+  if(activeKind!=='reading')return originalRenderEntry();
+  if(!session())return renderClasses();
+  let ss=students(),tt=tests();
+  if(!ss.length||!tt.length)return head('Registrering · læsning','Opret elever og en læseprøve først.')+`<div class="card">${empty('Klar til at komme i gang','Opret elever og en læseprøve.',!ss.length?'Tilføj elever':'Opret læseprøve',!ss.length?'add-students':'new-test')}</div>`;
+  if(!ss.some(x=>x.id===selectedStudent))selectedStudent=ss[0].id;
+  if(!tt.some(x=>x.id===selectedTest))selectedTest=tt[tt.length-1].id;
+  let t=testBy(selectedTest),idx=ss.findIndex(x=>x.id===selectedStudent),r=resultOf(selectedStudent,selectedTest);
+  let cats=t.categories||[];
+  return head('Registrering · læsning','Kopiér elevens resultatoversigt fra Alinea, kontrollér og gem.',`<span class="pill">${results().filter(x=>x.testId===t.id).length} af ${ss.length} registreret</span>`)+`
+  <section class="card">
+    <div class="formgrid"><div class="field"><label>Prøve</label><select id="readingTest">${opts(tt,t.id)}</select></div>
+    <div class="field"><label>Elev</label><div class="navstudent"><button class="btn outline" id="readingPrev" ${idx===0?'disabled':''}>‹</button><select id="readingStudent">${opts(ss,selectedStudent)}</select><button class="btn outline" id="readingNext" ${idx===ss.length-1?'disabled':''}>›</button></div></div></div>
+    <div class="formgrid"><div class="field"><label>Registrering</label><select id="readingStatus"><option value="">Gennemført</option><option value="FRAVÆR" ${r?.status?'selected':''}>Fraværende – mangler prøven</option></select></div>
+    <div class="field"><label>Elevens prøvedato</label><input type="date" id="readingDateTaken" value="${esc(r?.takenDate||t.date||today())}"></div>
+    <div class="field"><label>Tidsforbrug (mm:ss)</label><input id="readingDuration" placeholder="26:37" value="${esc(r?.duration||'')}"></div></div>
+    <div class="field"><label>Indsæt resultat fra Alinea</label><textarea id="readingPaste" rows="8" placeholder="Unge bruger mobil på cyklen (artikel)    0/10    9/10&#10;Djævelens tre guldhår (eventyr)    0/10    10/10"></textarea>
+    <div class="hint">Første pointbrøk = blanke svar, anden = rigtige svar. Rækkefølgen bestemmer Tekst 1, Tekst 2 osv. Titler og genrer bruges ikke til sammenligning.</div></div>
+    <div id="readingFeedback" class="hint"></div>
+    <div id="readingRows">${cats.map((c,i)=>readingRow(c,i,r)).join('')}</div>
+    <div id="readingPreview"></div>
+    <div class="actions"><button class="btn" id="readingSave">Gem resultat</button><button class="btn soft" id="readingSaveNext">Gem og næste elev</button>${r?'<button class="btn outline" id="readingDelete">Slet registrering</button>':''}</div>
+  </section>`;
+};
+function readingRow(c,i,r){
+  let max=c.max||0,blank=r?.blanks?.[c.id]??'',right=r&&!r.status&&r.errors?.[c.id]!==undefined?max-r.errors[c.id]:'';
+  return `<div class="reading-input-row"><strong>Tekst ${i+1}</strong><label>Blanke <input type="number" min="0" max="${max}" data-blank="${c.id}" value="${blank}"></label><label>Rigtige <input type="number" min="0" max="${max}" data-right="${c.id}" value="${right}"></label><span>af ${max}</span></div>`;
+}
+function parseReading(raw){
+  let lines=raw.replace(/\r/g,'').split('\n').map(x=>x.replace(/\*\*/g,'').replace(/<br\s*\/?>/gi,' ').replace(/\|/g,' ').trim()).filter(Boolean);
+  let out=[],duration=(raw.match(/\b(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\b/)||[])[1]||'';
+  for(let line of lines){
+    let pairs=[...line.matchAll(/(\d+)\s*\/\s*(\d+)/g)].map(m=>({n:+m[1],max:+m[2],start:m.index}));
+    if(pairs.length<2)continue;
+    let blank=pairs[pairs.length-2],right=pairs[pairs.length-1],name=line.slice(0,blank.start).trim();
+    if(!name||/^(prøve|i alt|total|blanks?|rigtige svar|opgave|tekst \d+)\b/i.test(name))continue;
+    if(blank.max!==right.max||blank.n+right.n>right.max||right.max<=0)continue;
+    out.push({name,blank:blank.n,right:right.n,max:right.max});
+  }
+  // Alinea's clipboard may put title and the two fractions on separate lines.
+  if(!out.length){
+    for(let i=0;i<lines.length;i++){
+      let line=lines[i],pairs=[...line.matchAll(/(\d+)\s*\/\s*(\d+)/g)].map(m=>({n:+m[1],max:+m[2]}));
+      if(pairs.length===0&&!/^(prøve|dato|tid|blanke|rigtige|karakter)/i.test(line)){
+        let following=lines.slice(i+1,i+4).join(' '),p=[...following.matchAll(/(\d+)\s*\/\s*(\d+)/g)].slice(0,2).map(m=>({n:+m[1],max:+m[2]}));
+        if(p.length===2&&p[0].max===p[1].max&&p[0].n+p[1].n<=p[1].max){out.push({name:line,blank:p[0].n,right:p[1].n,max:p[1].max});i+=2}
+      }
+    }
+  }
+  return {rows:out,duration};
+}
+const originalBind=bind;
+bind=function(){
+  if(page!=='entry'||activeKind!=='reading')return originalBind();
+  document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{if(!canLeave())return;page=b.dataset.page;render()});
+  document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>action(b.dataset.action,b.dataset.id));
+  if(!$('#readingStudent'))return;
+  $('#readingStudent').onchange=e=>{selectedStudent=e.target.value;render()};
+  $('#readingTest').onchange=e=>{selectedTest=e.target.value;render()};
+  let ss=students(),idx=ss.findIndex(s=>s.id===selectedStudent);
+  $('#readingPrev').onclick=()=>{if(idx>0){selectedStudent=ss[idx-1].id;render()}};
+  $('#readingNext').onclick=()=>{if(idx<ss.length-1){selectedStudent=ss[idx+1].id;render()}};
+  $('#readingStatus').onchange=updateReadingPreview;
+  $('#readingPaste').oninput=()=>{
+    let {rows,duration}=parseReading($('#readingPaste').value),t=testBy(selectedTest),feedback=$('#readingFeedback');
+    if(!rows.length){feedback.textContent='Ingen læsetekster genkendt endnu. Indsæt både blanke og rigtige svar fra Alinea.';return}
+    if(!t.categories.length){
+      feedback.textContent=`${rows.length} tekster fundet. Pointfordelingen fastlægges, når du gemmer første resultat.`;
+      $('#readingRows').innerHTML=rows.map((x,i)=>readingRow({id:'new-'+i,max:x.max},i)).join('');
+    }else if(rows.length!==t.categories.length||rows.some((x,i)=>x.max!==t.categories[i].max)){
+      feedback.textContent='Teksternes antal eller pointfordeling passer ikke til denne prøve. Kontrollér den indsatte tekst.';
+      $('#readingRows').innerHTML=t.categories.map((c,i)=>readingRow(c,i,resultOf(selectedStudent,selectedTest))).join('');
+      $('#readingPaste').dataset.invalid='1';return;
+    }else {feedback.textContent=`${rows.length} tekster genkendt. Kontrollér tallene nedenfor.`}
+    delete $('#readingPaste').dataset.invalid;
+    rows.forEach((x,i)=>{
+      let id=t.categories[i]?.id||'new-'+i;
+      let b=document.querySelector(`[data-blank="${id}"]`),r=document.querySelector(`[data-right="${id}"]`);
+      if(b)b.value=x.blank;if(r)r.value=x.right;
+    });
+    if(duration&&!$('#readingDuration').value)$('#readingDuration').value=duration;
+    updateReadingPreview();
+  };
+  $('#readingRows').oninput=updateReadingPreview;
+  $('#readingSave').onclick=()=>saveReading(false);
+  $('#readingSaveNext').onclick=()=>saveReading(true);
+  if($('#readingDelete'))$('#readingDelete').onclick=()=>{
+    if(!confirm('Slet denne registrering?'))return;
+    db.results=db.results.filter(r=>!(r.sessionId===selectedSession&&r.studentId===selectedStudent&&r.testId===selectedTest));
+    save();render();toast('Registreringen er slettet');
+  };
+  updateReadingPreview();
+};
+function readReading(){
+  let t=testBy(selectedTest),status=$('#readingStatus').value;
+  if(status)return {status,errors:{},blanks:{},takenDate:''};
+  if($('#readingPaste').dataset.invalid)return {error:'Resultatets pointfordeling passer ikke til prøven.'};
+  let parsed=parseReading($('#readingPaste').value).rows,cats=t.categories.length?t.categories:parsed.map((x,i)=>({id:'new-'+i,max:x.max,name:'Tekst '+(i+1)}));
+  if(!cats.length)return {error:'Indsæt først et resultat fra Alinea.'};
+  let errors={},blanks={};
+  for(let c of cats){
+    let b=document.querySelector(`[data-blank="${c.id}"]`),r=document.querySelector(`[data-right="${c.id}"]`);
+    if(!b||!r||b.value.trim()===''||r.value.trim()==='')return {error:'Udfyld både blanke og rigtige svar for hver tekst.'};
+    let blank=Number(b.value),right=Number(r.value);
+    if(!Number.isInteger(blank)||!Number.isInteger(right)||blank<0||right<0||blank+right>c.max)return {error:'Kontrollér antallet af blanke og rigtige svar.'};
+    blanks[c.id]=blank;errors[c.id]=c.max-right;
+  }
+  let duration=$('#readingDuration').value.trim();
+  if(duration&&!/^\d{1,2}:\d{2}(?::\d{2})?$/.test(duration))return {error:'Skriv tidsforbrug som mm:ss, fx 26:37.'};
+  return {status:'',errors,blanks,duration,takenDate:$('#readingDateTaken').value||t.date,categories:cats};
+}
+function updateReadingPreview(){
+  let e=$('#readingPreview'),r=readReading();
+  if(r.error){e.innerHTML=`<p class="hint">${esc(r.error)}</p>`;return}
+  if(r.status){e.innerHTML='<p class="hint">Fravær registreres uden point.</p>';return}
+  let max=r.categories.reduce((a,c)=>a+c.max,0),errors=Object.values(r.errors).reduce((a,b)=>a+b,0),blanks=Object.values(r.blanks).reduce((a,b)=>a+b,0),correct=max-errors;
+  e.innerHTML=`<div class="subtlebox"><strong>${correct}/${max} rigtige · ${errors-blanks} forkerte · ${blanks} blanke · ${pct(correct/max*100)}</strong></div>`;
+}
+function saveReading(next){
+  let data=readReading();if(data.error)return alert(data.error);
+  let t=testBy(selectedTest);
+  if(!data.status&&!t.categories.length){
+    if(!confirm('Opret denne prøves '+data.categories.length+' tekster med pointfordelingen '+data.categories.map(c=>c.max).join(', ')+'?'))return;
+    t.categories=data.categories.map((c,i)=>({id:uid(),name:'Tekst '+(i+1),max:c.max}));
+    data.errors=Object.fromEntries(t.categories.map((c,i)=>[c.id,data.errors['new-'+i]]));
+    data.blanks=Object.fromEntries(t.categories.map((c,i)=>[c.id,data.blanks['new-'+i]]));
+  }
+  delete data.categories;
+  let old=resultOf(selectedStudent,selectedTest);
+  if(old)Object.assign(old,data);else db.results.push({id:uid(),sessionId:selectedSession,studentId:selectedStudent,testId:selectedTest,...data});
+  if(!save())return;
+  toast('Læseprøven er gemt');
+  if(next){let ss=students(),i=ss.findIndex(s=>s.id===selectedStudent);if(ss[i+1])selectedStudent=ss[i+1].id}
+  render();if(next)$('#readingPaste')?.focus();
+}
+const originalStudentDetails=studentDetails;
+studentDetails=function(){
+  let html=originalStudentDetails(),s=studentBy(selectedStudent);
+  if(!s)return html;
+  let rr=results().filter(r=>r.studentId===s.id).sort((a,b)=>(testBy(b.testId)?.date||'').localeCompare(testBy(a.testId)?.date||''));
+  let cards=rr.map(r=>resultCard(r)).join('');
+  // Resultatkortene er den detaljerede prøveoversigt; det samlede diagram står øverst.
+  return html+`<div class="divider"></div><h3>Resultatkort – hver prøve</h3>${cards||'<p class="hint">Ingen prøver registreret endnu.</p>'}`;
+};
+function resultCard(r){
+  let t=testBy(r.testId);if(!t)return '';
+  if(r.status)return `<details class="result-card"><summary>${esc(t.name)} · ${esc(r.status)}</summary><p>Eleven mangler prøven.</p></details>`;
+  let c=computed(r);if(!c)return '';
+  let blank=kindOf(t)==='reading'?Object.values(r.blanks||{}).reduce((a,b)=>a+Number(b||0),0):0;
+  let wrong=c.errors-blank,correct=c.correct,max=c.max;
+  let segment=(n,color)=>n>0?`<span style="background:${color};flex:${n}"></span>`:'';
+  let parts=t.categories.map((cat,i)=>{
+    let errors=Number(r.errors?.[cat.id]||0),b=kindOf(t)==='reading'?Number(r.blanks?.[cat.id]||0):0,right=cat.max-errors;
+    return `<div class="result-segment-row"><span>${kindOf(t)==='reading'?'Tekst '+(i+1):esc(cat.name)}</span><div class="segbar">${segment(right,'#29956c')}${segment(errors-b,'#db9347')}${segment(b,'#b6becb')}</div><strong>${right}/${cat.max}</strong></div>`;
+  }).join('');
+  return `<details class="result-card"><summary><strong>${esc(t.name)}</strong> <span>${esc(r.takenDate||t.date||'')} · ${correct}/${max} · ${pct(c.percent)} · Karakter ${esc(c.grade??'—')}</span></summary>
+  <div class="result-card-body"><div class="result-metrics"><div><strong>${correct}</strong><small>Rigtige</small></div><div><strong>${wrong}</strong><small>Forkerte</small></div><div><strong>${kindOf(t)==='reading'?blank:pct(c.percent)}</strong><small>${kindOf(t)==='reading'?'Blanke':'Rigtighed'}</small></div></div>
+  ${r.duration?`<p class="hint">Tidsforbrug: ${esc(r.duration)}</p>`:''}
+  <div class="segbar mainbar">${segment(correct,'#29956c')}${segment(wrong,'#db9347')}${segment(blank,'#b6becb')}</div>
+  ${parts}<div class="result-legend"><span>🟩 Rigtige</span><span>🟧 Forkerte</span>${kindOf(t)==='reading'?'<span>⬜ Blanke</span>':''}</div></div></details>`;
+}
+const originalRenderOverview=renderOverview;
+renderOverview=function(){return originalRenderOverview().replace('Retskrivningstrackeren','Prøvetrackeren')};
+
 $('#sessionPicker').onchange=e=>{if(!canLeave()){e.target.value=selectedSession;return}selectedSession=e.target.value;selectedStudent='';selectedTest='';render()};$('#addSessionTop').onclick=newSession;render();
