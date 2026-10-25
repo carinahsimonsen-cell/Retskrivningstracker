@@ -118,24 +118,32 @@ function readingRow(c,i,r){
   return `<div class="reading-input-row"><strong>Tekst ${i+1}</strong><label>Blanke <input type="number" min="0" max="${max}" data-blank="${c.id}" value="${blank}"></label><label>Rigtige <input type="number" min="0" max="${max}" data-right="${c.id}" value="${right}"></label><span>af ${max}</span></div>`;
 }
 function parseReading(raw){
-  let lines=raw.replace(/\r/g,'').split('\n').map(x=>x.replace(/\*\*/g,'').replace(/<br\s*\/?>/gi,' ').replace(/\|/g,' ').trim()).filter(Boolean);
-  let out=[],duration=(raw.match(/\b(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\b/)||[])[1]||'';
-  for(let line of lines){
-    let pairs=[...line.matchAll(/(\d+)\s*\/\s*(\d+)/g)].map(m=>({n:+m[1],max:+m[2],start:m.index}));
-    if(pairs.length<2)continue;
-    let blank=pairs[pairs.length-2],right=pairs[pairs.length-1],name=line.slice(0,blank.start).trim();
-    if(!name||/^(prøve|i alt|total|blanks?|rigtige svar|opgave|tekst \d+)\b/i.test(name))continue;
-    if(blank.max!==right.max||blank.n+right.n>right.max||right.max<=0)continue;
-    out.push({name,blank:blank.n,right:right.n,max:right.max});
+  const lines=raw.replace(/\r/g,'').split('\n').map(x=>x.replace(/\*\*/g,'').replace(/<br\s*\/?>/gi,' ').replace(/\|/g,' ').trim()).filter(Boolean);
+  const duration=(raw.match(/\b(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\b/)||[])[1]||'';
+  const out=[];
+  const fraction=/(\d+)\s*\/\s*(\d+)/g;
+  const ignore=/^(prøve|i alt|total|blanks?|rigtige svar|opgave|tekst \d+|dato|tid|karakter)\b/i;
+  function add(name,pairs){
+    if(!name||ignore.test(name)||pairs.length!==2)return false;
+    const [blank,right]=pairs;
+    if(blank.max!==right.max||blank.max<=0||blank.n+right.n>right.max)return false;
+    out.push({name,blank:blank.n,right:right.n,max:right.max});return true;
   }
-  // Alinea's clipboard may put title and the two fractions on separate lines.
-  if(!out.length){
-    for(let i=0;i<lines.length;i++){
-      let line=lines[i],pairs=[...line.matchAll(/(\d+)\s*\/\s*(\d+)/g)].map(m=>({n:+m[1],max:+m[2]}));
-      if(pairs.length===0&&!/^(prøve|dato|tid|blanke|rigtige|karakter)/i.test(line)){
-        let following=lines.slice(i+1,i+4).join(' '),p=[...following.matchAll(/(\d+)\s*\/\s*(\d+)/g)].slice(0,2).map(m=>({n:+m[1],max:+m[2]}));
-        if(p.length===2&&p[0].max===p[1].max&&p[0].n+p[1].n<=p[1].max){out.push({name:line,blank:p[0].n,right:p[1].n,max:p[1].max});i+=2}
-      }
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    const matches=[...line.matchAll(fraction)];
+    const pairs=matches.map(m=>({n:+m[1],max:+m[2]}));
+    if(matches.length===2){
+      const title=line.slice(0,matches[0].index).trim();
+      if(add(title,pairs))continue;
+    }
+    // Alinea kan placere titel og point på hver sin linje.
+    // Accepter kun den umiddelbart følgende linje med præcis to pointbrøker.
+    if(matches.length===0&&!ignore.test(line)&&i+1<lines.length){
+      const next=lines[i+1];
+      const nextMatches=[...next.matchAll(fraction)];
+      const nextPairs=nextMatches.map(m=>({n:+m[1],max:+m[2]}));
+      if(nextMatches.length===2&&next.slice(0,nextMatches[0].index).trim()===''&&add(line,nextPairs))i++;
     }
   }
   return {rows:out,duration};
