@@ -16,3 +16,8 @@
 
 .absent-count{display:inline;white-space:nowrap;border:0;background:transparent;color:#c52f3a;font:inherit;font-weight:700;padding:0 2px;margin-left:3px;cursor:pointer;text-decoration:none;vertical-align:baseline}
 .absent-count:hover,.absent-count:focus-visible{text-decoration:underline}
+
+.student-comparison.better{color:#16803c;font-weight:700}
+.student-comparison.worse{color:#c42c36;font-weight:700}
+.student-comparison.neutral{color:inherit;font-weight:600}
+.class-average{color:#737d8e;white-space:nowrap;font-weight:400}
