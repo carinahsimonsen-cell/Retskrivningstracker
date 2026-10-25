@@ -27,3 +27,7 @@
 .entry-form,.entry-overview{min-width:0}
 .entry-overview{position:sticky;top:18px;max-height:calc(100vh - 36px);overflow-y:auto;overscroll-behavior:contain}
 @media(max-width:1120px){.entry-layout{grid-template-columns:minmax(0,1fr)}.entry-overview{position:static;max-height:none;overflow:visible}}
+
+/* Læsning: ingen særskilt scrollbar i prøveoverblikket.
+   Hele registreringssiden bruger browserens almindelige scroll. */
+.entry-layout .entry-overview{position:static;max-height:none;overflow:visible;overscroll-behavior:auto}
