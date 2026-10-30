@@ -494,3 +494,52 @@ function comparisonCell(value,average,isPercent,isError,display){
  const avg=Number.isFinite(average)?` <span class="class-average">(klasse: ${average.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2})}${isPercent||isError?' %':''})</span>`:'';
  return `<span class="student-comparison ${tone}">${esc(own)}</span>${avg}`;
 }
+
+
+// Samlet klasseoverblik pr. opgavetype/tekstposition for aktiv prøvetype.
+// Ingen ændringer i gemte data: beregnes direkte af gyldige resultater.
+function classTrainingRows(){
+ const map=new Map();
+ for(const r of results()){
+  if(!computed(r))continue; // udelukker fravær, tekniske fejl og ugyldige resultater
+  const t=testBy(r.testId);
+  if(!t)continue;
+  for(const c of t.categories||[]){
+   const max=Number(c.max),error=Number(r.errors?.[c.id]);
+   if(!Number.isFinite(max)||max<=0||!Number.isFinite(error)||error<0||error>max)continue;
+   const key=activeKind==='reading'?alias(c.name):alias(c.name);
+   if(!map.has(key))map.set(key,{name:c.name,totalErrors:0,totalMax:0,students:new Map()});
+   const row=map.get(key);row.totalErrors+=error;row.totalMax+=max;
+   if(!row.students.has(r.studentId))row.students.set(r.studentId,{errors:0,max:0,tests:new Set()});
+   const person=row.students.get(r.studentId);person.errors+=error;person.max+=max;person.tests.add(t.id);
+  }
+ }
+ return [...map.values()].map(row=>({
+  ...row,rate:row.totalMax?row.totalErrors/row.totalMax*100:0,
+  needs:[...row.students.entries()].map(([id,p])=>({
+   id,name:studentBy(id)?.name||'Ukendt elev',rate:p.errors/p.max*100,
+   errors:p.errors,max:p.max,tests:p.tests.size
+  })).filter(p=>p.rate>50+1e-9).sort((a,b)=>b.rate-a.rate||a.name.localeCompare(b.name,'da'))
+ })).sort((a,b)=>b.rate-a.rate||a.name.localeCompare(b.name,'da'));
+}
+function trainingOverview(){
+ const rows=classTrainingRows();
+ const heading=activeKind==='reading'?'Teksttyper – klassens samlede resultater':'Opgavetyper – klassens samlede resultater';
+ if(!rows.length)return `<section class="card training-overview"><h2>${heading}</h2><p class="hint">Overblikket vises, når der er gemt gennemførte prøver.</p></section>`;
+ return `<section class="card training-overview"><h2>${heading}</h2><p class="hint">Samlet fejlprocent for skoleårets prøver. Klik på en række for at se elever med over 50 % fejl i den pågældende opgavetype.</p>
+ <div class="tablewrap"><table class="training-table"><thead><tr><th>Opgavetype</th><th class="right">Fejlprocent</th><th class="right">Træningsbehov</th></tr></thead><tbody>
+ ${rows.map((row,i)=>`<tr class="training-trigger" data-training-row="${i}" tabindex="0" role="button" aria-expanded="false" aria-controls="training-detail-${i}"><td><span class="training-chevron" aria-hidden="true">▸</span> ${esc(row.name)}</td><td class="right">${row.rate.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2})} %</td><td class="right"><span class="${row.needs.length?'training-count':''}">${row.needs.length} ${row.needs.length===1?'elev':'elever'}</span></td></tr>
+ <tr class="training-detail-row" id="training-detail-${i}" hidden><td colspan="3"><div class="training-detail">${row.needs.length?`<p class="hint">Elever med over 50 % fejl · sorteret efter fejlprocent</p><div class="training-people">${row.needs.map(p=>`<div class="training-person"><span>${esc(p.name)} <small class="hint">(${p.tests} ${p.tests===1?'prøve':'prøver'})</small></span><strong>${pct(p.rate)} fejl</strong></div>`).join('')}</div>`:'<p class="hint">Ingen elever har over 50 % fejl i denne opgavetype.</p>'}</div></td></tr>`).join('')}
+ </tbody></table></div></section>`;
+}
+const beforeTrainingOverview=renderOverview;
+renderOverview=function(){return beforeTrainingOverview()+ (session()?trainingOverview():'')};
+document.addEventListener('click',e=>{
+ const tr=e.target.closest('.training-trigger');if(!tr)return;
+ const detail=document.getElementById('training-detail-'+tr.dataset.trainingRow);if(!detail)return;
+ detail.hidden=!detail.hidden;
+ tr.setAttribute('aria-expanded',String(!detail.hidden));
+});
+document.addEventListener('keydown',e=>{
+ if((e.key==='Enter'||e.key===' ')&&e.target.matches('.training-trigger')){e.preventDefault();e.target.click()}
+});

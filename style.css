@@ -31,3 +31,21 @@
 /* Læsning: ingen særskilt scrollbar i prøveoverblikket.
    Hele registreringssiden bruger browserens almindelige scroll. */
 .entry-layout .entry-overview{position:static;max-height:none;overflow:visible;overscroll-behavior:auto}
+
+/* Samlet klasseanalyse – kompakte, udfoldelige rækker */
+.training-overview{margin-top:20px}
+.training-overview h2{margin-bottom:8px}
+.training-table{width:100%}
+.training-trigger{cursor:pointer}
+.training-trigger:hover{background:#f5f8ff}
+.training-trigger:focus-visible{outline:2px solid #4978dd;outline-offset:-2px}
+.training-chevron{display:inline-block;color:#63789d;margin-right:8px;transition:transform .15s ease}
+.training-trigger[aria-expanded="true"] .training-chevron{transform:rotate(90deg)}
+.training-count{color:#c52f3a;font-weight:700}
+.training-detail-row[hidden]{display:none}
+.training-detail-row>td{padding:0 12px 12px 30px!important;border-bottom:1px solid #e7ebf3}
+.training-detail{background:#f5f7fb;border-radius:10px;padding:12px 16px}
+.training-detail .hint{margin:0 0 8px}
+.training-person{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #e3e8f1}
+.training-person:last-child{border-bottom:0}
+.training-person strong{color:#c52f3a;white-space:nowrap}
