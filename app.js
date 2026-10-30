@@ -543,3 +543,94 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{
  if((e.key==='Enter'||e.key===' ')&&e.target.matches('.training-trigger')){e.preventDefault();e.target.click()}
 });
+
+
+// Klasse- og elevtidsstatistik. Kun gennemførte resultater med registreret tid.
+function recordedTimeRows(testId=null,studentId=null){
+ return results().filter(r=>(!testId||r.testId===testId)&&(!studentId||r.studentId===studentId))
+  .map(r=>({r,t:testBy(r.testId),sec:secondsFromTime(r.duration||'')}))
+  .filter(x=>x.t&&computed(x.r)&&Number.isFinite(x.sec)&&x.sec!==null&&x.sec>=0);
+}
+function meanTime(rows){return rows.length?formatSeconds(Math.round(rows.reduce((sum,x)=>sum+x.sec,0)/rows.length)):'—'}
+function timeGroups(testId=null){
+ const rows=recordedTimeRows(testId);
+ const ordinary=rows.filter(x=>!x.r.specialConditions),special=rows.filter(x=>!!x.r.specialConditions);
+ return {ordinary,special,label:`${meanTime(ordinary)}/${meanTime(special)}`};
+}
+function testClassSummary(t){
+ const valid=results().filter(r=>r.testId===t.id&&computed(r));
+ const percents=valid.map(r=>computed(r).percent).filter(Number.isFinite);
+ const grades=valid.map(r=>computed(r).numericGrade).filter(Number.isFinite);
+ const avg=arr=>arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:NaN;
+ const num=x=>Number.isFinite(x)?x.toLocaleString('da-DK',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+ const times=timeGroups(t.id);
+ const categories=(t.categories||[]).map(c=>{
+  let errors=0,max=0,people=[];
+  for(const r of valid){const e=Number(r.errors?.[c.id]);if(!Number.isFinite(e)||e<0||!Number(c.max))continue;
+   errors+=e;max+=Number(c.max);
+   if(e/Number(c.max)>0.5+1e-9)people.push({name:studentBy(r.studentId)?.name||'Ukendt elev',rate:e/Number(c.max)*100});
+  }
+  people.sort((a,b)=>b.rate-a.rate||a.name.localeCompare(b.name,'da'));
+  return {name:c.name,errors,max,people,rate:max?errors/max*100:NaN};
+ }).filter(c=>c.max>0).sort((a,b)=>b.rate-a.rate);
+ return `<div class="test-class-summary"><div class="test-summary-kpis">
+  <div class="subtlebox"><div class="hint">Gns. rigtighed</div><div class="kpi">${num(avg(percents))}${percents.length?' %':''}</div></div>
+  <div class="subtlebox"><div class="hint">Gns. karakter</div><div class="kpi">${num(avg(grades))}</div></div>
+  <div class="subtlebox"><div class="hint">Gns. tid · ordinær</div><div class="kpi">${meanTime(times.ordinary)}</div><div class="hint">${times.ordinary.length} tidsregistreringer</div></div>
+  <div class="subtlebox"><div class="hint">Gns. tid · særlige vilkår</div><div class="kpi">${meanTime(times.special)}</div><div class="hint">${times.special.length} tidsregistreringer</div></div>
+ </div><div class="hint">${valid.length} gennemførte prøver · fravær og tekniske fejl er udeladt</div>
+ <h3>${kindOf(t)==='reading'?'Teksttyper':'Opgavetyper'} – klassens resultater</h3>
+ ${categories.length?`<table class="training-table"><thead><tr><th>Opgavetype</th><th class="right">Rigtighed</th><th class="right">Fejlprocent</th><th class="right">Træningsbehov</th></tr></thead><tbody>
+ ${categories.map((c,i)=>`<tr class="test-cat-trigger" data-testcat="${esc(t.id)}-${i}" tabindex="0" role="button" aria-expanded="false"><td><span class="training-chevron">▸</span> ${esc(c.name)}</td><td class="right">${num(100-c.rate)} %</td><td class="right">${num(c.rate)} %</td><td class="right"><span class="${c.people.length?'training-count':''}">${c.people.length} ${c.people.length===1?'elev':'elever'}</span></td></tr><tr class="training-detail-row" data-testcat-detail="${esc(t.id)}-${i}" hidden><td colspan="4"><div class="training-detail">${c.people.length?c.people.map(p=>`<div class="training-person"><span>${esc(p.name)}</span><strong>${pct(p.rate)} fejl</strong></div>`).join(''):'<p class="hint">Ingen elever med over 50 % fejl.</p>'}</div></td></tr>`).join('')}
+ </tbody></table>`:'<p class="hint">Opgavetyper fastlægges ved første gennemførte prøve.</p>'}</div>`;
+}
+// Behold den eksisterende prøvebibliotekstabel; tilføj et kompakt udfoldeligt
+// klasseoverblik direkte under hver prøve, uden en ny side.
+const beforeClassTestSummary=renderTests;
+renderTests=function(){
+ let html=beforeClassTestSummary();
+ for(const t of tests()){
+  const target=`<strong>${esc(t.name)}</strong>`;
+  const replacement=`<button type="button" class="test-summary-toggle" data-test-summary="${esc(t.id)}" aria-expanded="false" title="Vis klassens resultater for prøven"><span class="training-chevron">▸</span> <strong>${esc(t.name)}</strong></button>`;
+  const at=html.indexOf(target);if(at<0)continue;
+  html=html.slice(0,at)+replacement+html.slice(at+target.length);
+  const rowEnd=html.indexOf('</tr>',at);if(rowEnd<0)continue;
+  html=html.slice(0,rowEnd+5)+`<tr class="training-detail-row" data-test-summary-detail="${esc(t.id)}" hidden><td colspan="6">${testClassSummary(t)}</td></tr>`+html.slice(rowEnd+5);
+ }
+ return html;
+};
+// Tilføj tredje nøgletal på elevens eksisterende oversigt.
+const beforeStudentTimeKpi=studentDetails;
+studentDetails=function(){
+ let html=beforeStudentTimeKpi();
+ const avg=meanTime(recordedTimeRows(null,selectedStudent));
+ const marker='</div></div><h3>Individuel';
+ if(html.includes(marker))return html.replace(marker,`</div><div class="subtlebox"><div class="hint">Gns. tidsforbrug</div><div class="kpi">${avg}</div></div></div><h3>Individuel`);
+ return html;
+};
+// Genbrug den eksisterende oversigts KPI'er, så den første elevboks erstattes
+// af tidsboksen uden at påvirke resten af siden.
+const beforeClassTimeKpi=renderOverview;
+renderOverview=function(){
+ let html=beforeClassTimeKpi();
+ if(!session())return html;
+ const groups=timeGroups();
+ html=html.replace(/<div class="card"><div class="stat-label">Elever<\/div><div class="stat-value">\$\{students\(\)\.length\}<\/div><div class="stat-foot">I denne klasse<\/div><\/div>/,'');
+ // Originalen er allerede interpoleret, så erstat den første faktiske KPI-boks.
+ html=html.replace(/<div class="grid stats"><div class="card"><div class="stat-label">Elever<\/div><div class="stat-value">\d+<\/div><div class="stat-foot">I denne klasse<\/div><\/div>/,'<div class="grid stats">');
+ html=html.replace('Kun dette skoleårs resultater indgår i statistikken.',`${students().length} elever. Kun dette skoleårs resultater indgår i statistikken.`);
+ const insert=`<div class="card"><div class="stat-label">Gns. tidsforbrug</div><div class="stat-value time-stat-value">${groups.label}</div><div class="stat-foot">Ordinær tid / Særlige vilkår</div></div>`;
+ const end=html.indexOf('</div><div class="grid two">');
+ if(end>=0)html=html.slice(0,end)+insert+html.slice(end);
+ return html;
+};
+document.addEventListener('click',e=>{
+ const btn=e.target.closest('[data-test-summary]');
+ if(btn){const detail=document.querySelector(`[data-test-summary-detail="${btn.dataset.testSummary}"]`);if(detail){detail.hidden=!detail.hidden;btn.setAttribute('aria-expanded',String(!detail.hidden))}return}
+ const row=e.target.closest('[data-testcat]');if(!row)return;
+ const detail=document.querySelector(`[data-testcat-detail="${row.dataset.testcat}"]`);
+ if(detail){detail.hidden=!detail.hidden;row.setAttribute('aria-expanded',String(!detail.hidden))}
+});
+document.addEventListener('keydown',e=>{
+ if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-testcat]')){e.preventDefault();e.target.click()}
+});

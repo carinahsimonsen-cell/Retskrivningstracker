@@ -49,3 +49,21 @@
 .training-person{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #e3e8f1}
 .training-person:last-child{border-bottom:0}
 .training-person strong{color:#c52f3a;white-space:nowrap}
+
+/* Klasse- og prøvetid, kompakt og uden ekstra navigation */
+.time-stat-value{font-size:clamp(19px,2vw,29px);white-space:nowrap;font-variant-numeric:tabular-nums}
+.student-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+.test-summary-toggle{background:none;border:0;padding:0;color:inherit;text-align:left;cursor:pointer;font:inherit}
+.test-summary-toggle:hover strong{text-decoration:underline}
+.test-summary-toggle[aria-expanded="true"] .training-chevron{transform:rotate(90deg)}
+.test-class-summary{padding:12px 8px 16px}
+.test-summary-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px}
+.test-summary-kpis .subtlebox{margin:0;min-width:0}
+.test-summary-kpis .kpi{font-size:20px;font-variant-numeric:tabular-nums}
+.test-class-summary h3{margin:18px 0 8px}
+.test-cat-trigger{cursor:pointer}
+.test-cat-trigger:hover{background:#f5f8ff}
+.test-cat-trigger:focus-visible{outline:2px solid #4978dd;outline-offset:-2px}
+.test-cat-trigger[aria-expanded="true"] .training-chevron{transform:rotate(90deg)}
+@media(max-width:1000px){.test-summary-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.student-kpis{grid-template-columns:1fr}.time-stat-value{font-size:20px}}
