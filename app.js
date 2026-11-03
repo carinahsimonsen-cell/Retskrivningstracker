@@ -634,3 +634,107 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{
  if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-testcat]')){e.preventDefault();e.target.click()}
 });
+
+
+// === Samlet klasse- og prøveadministration ===
+let expandedAdminClass=null;
+function classRoster(s){
+  const people=db.students.filter(x=>x.sessionId===s.id).sort((a,b)=>a.name.localeCompare(b.name,'da'));
+  const roster=people.map(st=>`<tr><td>${esc(st.name)}</td><td>${termsOn(st,today())?'Særlige vilkår':'Ordinære'}${(st.conditionsHistory||[]).length?` <small class="hint">(${esc([...st.conditionsHistory].sort((a,b)=>b.from.localeCompare(a.from))[0].from)})</small>`:''}</td><td class="right"><button class="btn small outline" data-action="edit-admin-student" data-id="${st.id}">Rediger</button> <button class="btn small danger" data-action="delete-admin-student" data-id="${st.id}">Slet</button></td></tr>`).join('');
+  return `<div class="admin-roster"><div class="row between" style="gap:10px;flex-wrap:wrap;margin-bottom:12px"><strong>Elever og prøvevilkår</strong><button class="btn small" data-action="add-admin-students" data-id="${s.id}">+ Tilføj elever</button></div>${people.length?`<div class="tablewrap"><table><thead><tr><th>Elev</th><th>Prøvevilkår</th><th class="right">Handling</th></tr></thead><tbody>${roster}</tbody></table></div>`:'<p class="hint">Ingen elever endnu.</p>'}<div class="actions"><button class="btn outline small" data-action="edit-admin-class" data-id="${s.id}">Rediger klasse</button><button class="btn danger small" data-action="delete-admin-class" data-id="${s.id}">Slet klasse</button></div></div>`;
+}
+renderClasses=function(){
+  return head('Klasser & skoleår','Opret og administrer klasser, elever og prøvevilkår samme sted.',`<button class="btn" data-action="new-session">+ Ny klasse / skoleår</button>`)+
+  `<div class="card">${db.sessions.length?db.sessions.map(s=>{
+    const n=db.students.filter(x=>x.sessionId===s.id).length,nt=db.tests.filter(x=>x.sessionId===s.id).length;
+    const opened=expandedAdminClass===s.id;
+    return `<section class="admin-class"><div class="admin-class-head"><button class="admin-expand" data-action="expand-admin-class" data-id="${s.id}" aria-expanded="${opened}"><span>${opened?'⌄':'›'} &nbsp;<strong>${esc(s.name)}</strong> · ${esc(s.year)}</span><span class="hint">${n} elever · ${nt} prøver</span></button><button class="btn small outline" data-action="switch-session" data-id="${s.id}">Åbn overblik</button><button class="btn small outline" data-action="promote" data-id="${s.id}">Nyt skoleår ↗</button></div>${opened?classRoster(s):''}</section>`;
+  }).join(''):empty('Ingen klasser endnu','Opret din første klasse med eleverne med det samme.','Opret klasse','new-session')}</div>`;
+};
+newSession=function(){
+  modal('Ny klasse / skoleår',`<div class="formgrid"><div class="field"><label>Klasse</label><input id="newClass" placeholder="7.B"></div><div class="field"><label>Skoleår</label><input id="newYear" placeholder="2026/27" value="2026/27"></div></div><div class="field"><label>Elever (valgfrit)</label><textarea id="newRoster" rows="9" placeholder="Ét elevnavn pr. linje"></textarea><div class="hint">Du kan indsætte hele elevlisten nu og redigere prøvevilkår direkte i klasseoversigten bagefter.</div></div>`,()=>{
+    const name=$('#newClass').value.trim(),year=$('#newYear').value.trim(),names=uniqueAdminNames($('#newRoster').value);
+    if(!name||!year)return alert('Udfyld både klasse og skoleår.');
+    const ss={id:uid(),name,year};
+    db.sessions.push(ss);names.forEach(n=>db.students.push({id:uid(),sessionId:ss.id,name:n}));
+    selectedSession=ss.id;selectedStudent='';selectedTest='';expandedAdminClass=ss.id;
+    if(!save())return;$('#modal').remove();page='classes';render();toast(`Klassen er oprettet med ${names.length} elever`);
+  },'Opret klasse');
+};
+function uniqueAdminNames(raw){const seen=new Set();return String(raw||'').split(/\r?\n/).map(x=>x.trim()).filter(n=>{const key=n.toLocaleLowerCase('da');if(!n||seen.has(key))return false;seen.add(key);return true})}
+function addAdminStudents(id){
+  const ss=db.sessions.find(x=>x.id===id);if(!ss)return;
+  modal('Tilføj elever til '+esc(ss.name),`<div class="field"><label>Elevnavne – ét pr. linje</label><textarea id="adminNames" rows="11" placeholder="Elev 1&#10;Elev 2"></textarea></div>`,()=>{
+    const names=uniqueAdminNames($('#adminNames').value),existing=new Set(db.students.filter(x=>x.sessionId===id).map(x=>x.name.toLocaleLowerCase('da')));
+    if(!names.length)return alert('Indsæt mindst ét navn.');
+    let added=0;names.forEach(n=>{if(!existing.has(n.toLocaleLowerCase('da'))){db.students.push({id:uid(),sessionId:id,name:n});added++}});
+    if(!save())return;expandedAdminClass=id;$('#modal').remove();render();toast(`${added} elever tilføjet`);
+  },'Tilføj elever');
+}
+function editAdminStudent(id){
+  const st=studentBy(id);if(!st)return;
+  modal('Rediger elev',`<div class="field"><label>Navn</label><input id="adminStudentName" value="${esc(st.name)}"></div><div class="formgrid"><div class="field"><label>Prøvevilkår fra dato</label><input type="date" id="adminTermsDate" value="${today()}"></div><div class="field"><label>Vilkår</label><select id="adminSpecial"><option value="0">Ordinære</option><option value="1" ${termsOn(st,today())?'selected':''}>Særlige vilkår</option></select></div></div><p class="hint">Ændringer i prøvevilkår gælder fra den valgte dato. Allerede gemte prøveresultater bevarer deres oprindelige vilkår.</p>`,()=>{
+    const name=$('#adminStudentName').value.trim(),date=$('#adminTermsDate').value,special=$('#adminSpecial').value==='1';
+    if(!name||!date)return alert('Udfyld navn og dato.');
+    if(db.students.some(x=>x.sessionId===st.sessionId&&x.id!==id&&x.name.toLocaleLowerCase('da')===name.toLocaleLowerCase('da')))return alert('Der findes allerede en elev med det navn i klassen.');
+    snapshotPreviousResults();st.name=name;
+    if(termsOn(st,date)!==special){
+      st.conditionsHistory=(st.conditionsHistory||[]).filter(h=>h.from!==date);
+      st.conditionsHistory.push({from:date,special});
+      st.conditionsHistory.sort((a,b)=>a.from.localeCompare(b.from));
+    }
+    if(!save())return;expandedAdminClass=st.sessionId;$('#modal').remove();render();toast('Elevens oplysninger er opdateret');
+  },'Gem ændringer');
+  $('#adminTermsDate').onchange=()=>{$('#adminSpecial').value=termsOn(st,$('#adminTermsDate').value)?'1':'0'};
+}
+function editAdminClass(id){
+ const ss=db.sessions.find(x=>x.id===id);if(!ss)return;
+ modal('Rediger klasse',`<div class="formgrid"><div class="field"><label>Klassenavn</label><input id="editClassName" value="${esc(ss.name)}"></div><div class="field"><label>Skoleår</label><input id="editClassYear" value="${esc(ss.year)}"></div></div>`,()=>{
+  const name=$('#editClassName').value.trim(),year=$('#editClassYear').value.trim();if(!name||!year)return alert('Udfyld begge felter.');
+  ss.name=name;ss.year=year;if(!save())return;$('#modal').remove();render();toast('Klassen er opdateret');
+ });
+}
+function deleteAdminStudent(id){
+ const st=studentBy(id);if(!st)return;
+ const n=db.results.filter(r=>r.studentId===id).length;
+ if(!confirm(`Slet ${st.name}?\n\n${n} registrering(er) og elevens historik slettes permanent.\n\nTag gerne en sikkerhedskopi først.`))return;
+ db.students=db.students.filter(x=>x.id!==id);db.results=db.results.filter(x=>x.studentId!==id);
+ if(selectedStudent===id)selectedStudent='';if(!save())return;render();toast('Eleven og tilhørende registreringer er slettet');
+}
+function deleteAdminClass(id){
+ const ss=db.sessions.find(x=>x.id===id);if(!ss)return;
+ const n=db.students.filter(x=>x.sessionId===id).length,t=db.tests.filter(x=>x.sessionId===id).length,r=db.results.filter(x=>x.sessionId===id).length;
+ if(!confirm(`Slet klassen ${ss.name} (${ss.year})?\n\nDet sletter ${n} elever, ${t} prøver og ${r} registreringer permanent.\n\nEksportér en sikkerhedskopi først, hvis oplysningerne skal bevares.`))return;
+ if(prompt(`Skriv SLET for at bekræfte sletning af ${ss.name}:`)!=='SLET')return;
+ db.sessions=db.sessions.filter(x=>x.id!==id);db.students=db.students.filter(x=>x.sessionId!==id);
+ db.tests=db.tests.filter(x=>x.sessionId!==id);db.results=db.results.filter(x=>x.sessionId!==id);
+ if(selectedSession===id){selectedSession=db.sessions[0]?.id||'';selectedStudent='';selectedTest=''}
+ expandedAdminClass=null;if(!save())return;render();toast('Klassen er slettet');
+}
+function deleteAdminTest(id){
+ const t=testBy(id);if(!t)return;
+ const n=db.results.filter(r=>r.testId===id).length;
+ if(!confirm(`Slet prøven "${t.name}"?\n\n${n} elevregistrering(er) slettes også permanent.\n\nTag gerne en sikkerhedskopi først.`))return;
+ db.tests=db.tests.filter(x=>x.id!==id);db.results=db.results.filter(x=>x.testId!==id);
+ if(selectedTest===id)selectedTest='';if(!save())return;render();toast('Prøven og dens registreringer er slettet');
+}
+const previousAdminAction=action;
+action=function(a,id){
+ if(a==='expand-admin-class'){expandedAdminClass=expandedAdminClass===id?null:id;return render()}
+ if(a==='add-admin-students')return addAdminStudents(id);
+ if(a==='edit-admin-student')return editAdminStudent(id);
+ if(a==='delete-admin-student')return deleteAdminStudent(id);
+ if(a==='edit-admin-class')return editAdminClass(id);
+ if(a==='delete-admin-class')return deleteAdminClass(id);
+ if(a==='delete-admin-test')return deleteAdminTest(id);
+ if(a==='add-students'){page='classes';expandedAdminClass=selectedSession;return render()}
+ return previousAdminAction(a,id);
+};
+const oldAdminTests=renderTests;
+renderTests=function(){
+ return oldAdminTests().replace(/(<button class="linkbtn" data-action="edit-test" data-id="([^"]+)">Rediger<\/button>)/g,'$1 <button class="btn small danger" data-action="delete-admin-test" data-id="$2">Slet</button>');
+};
+const oldAdminStudents=renderStudents;
+renderStudents=function(){
+ return oldAdminStudents().replace(/<button class="btn" data-action="add-students">\+ Tilføj elever<\/button>/g,'<button class="btn outline" data-page="classes">Administrer elever</button>');
+};

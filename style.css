@@ -67,3 +67,10 @@
 .test-cat-trigger[aria-expanded="true"] .training-chevron{transform:rotate(90deg)}
 @media(max-width:1000px){.test-summary-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.student-kpis{grid-template-columns:1fr}.time-stat-value{font-size:20px}}
+
+.admin-class{border-bottom:1px solid #e7ebf2;padding:12px 0}
+.admin-class-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.admin-expand{flex:1;display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left;background:none;border:0;padding:10px 4px;color:inherit;font:inherit;cursor:pointer;min-width:230px}
+.admin-expand:hover{background:#f5f7fc;border-radius:8px}
+.admin-roster{padding:12px 12px 16px;background:#f8faff;border-radius:10px;margin-top:8px}
+.admin-roster .actions{margin-top:14px}
