@@ -122,7 +122,7 @@ function parseReading(raw){
   const duration=(raw.match(/\b(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\b/)||[])[1]||'';
   const out=[];
   const fraction=/(\d+)\s*\/\s*(\d+)/g;
-  const ignore=/^(prøve|i alt|total|blanks?|rigtige svar|opgave|tekst \d+|dato|tid|karakter)\b/i;
+  const ignore=/^(prøve|i alt|total|blanks?|rigtige svar|opgave|dato|tid|karakter)\b/i;
   function add(name,pairs){
     if(!name||ignore.test(name)||pairs.length!==2)return false;
     const [blank,right]=pairs;
