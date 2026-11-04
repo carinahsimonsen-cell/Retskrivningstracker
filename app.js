@@ -738,3 +738,123 @@ const oldAdminStudents=renderStudents;
 renderStudents=function(){
  return oldAdminStudents().replace(/<button class="btn" data-action="add-students">\+ Tilføj elever<\/button>/g,'<button class="btn outline" data-page="classes">Administrer elever</button>');
 };
+
+// Fælles prøvebibliotek. Klassetilknytninger er selvstændige snapshots,
+// så ændringer i biblioteket aldrig ændrer historiske elevresultater.
+const cloneTestData=x=>JSON.parse(JSON.stringify(x));
+const libraryGrade=t=>{const s=db.sessions.find(x=>x.id===t.sessionId);return (s?.name||'').match(/\b([789])\b/)?.[1]||'7'};
+function ensureLibrary(){
+ if(!Array.isArray(db.libraryTests))db.libraryTests=[];
+ // Tag eksisterende prøver med, også dem der er oprettet før biblioteket fandtes.
+ let changed=false;
+ for(const t of db.tests){
+  if(t.libraryId&&db.libraryTests.some(l=>l.id===t.libraryId))continue;
+  const gradeLevel=libraryGrade(t),kind=kindOf(t);
+  let lib=db.libraryTests.find(l=>l.gradeLevel===gradeLevel&&l.kind===kind&&norm(l.name)===norm(t.name));
+  if(!lib){lib={id:uid(),name:t.name,kind,gradeLevel,versions:[{number:1,name:t.name,categories:cloneTestData(t.categories||[]),grades:cloneTestData(t.grades||[]),createdAt:today()}]};db.libraryTests.push(lib)}
+  else if((t.categories||[]).filter(c=>c.max>0).length>(lib.versions.at(-1).categories||[]).filter(c=>c.max>0).length){
+   // Foretræk den udfyldte prøveopsætning, hvis en tidligere prøve kun var en kladde.
+   if(!db.tests.some(x=>x.libraryId===lib.id&&x.libraryVersion===1&&db.results.some(r=>r.testId===x.id))){
+    lib.versions[0].categories=cloneTestData(t.categories||[]);lib.versions[0].grades=cloneTestData(t.grades||[]);
+   }
+  }
+  t.libraryId=lib.id;t.libraryVersion=1;changed=true;
+ }
+ if(changed)save();
+}
+function libraryLatest(l){return l.versions[l.versions.length-1]}
+function libraryCounts(l){return db.tests.filter(t=>t.libraryId===l.id).length}
+function libraryRow(l){const v=libraryLatest(l);return `<section class="lib-row"><div class="lib-row-main"><div><strong>${esc(l.name)}</strong><div class="hint">${l.kind==='reading'?'Læsning':'Retskrivning'} · ${esc(l.gradeLevel)}. klasse · Version ${v.number} · ${libraryCounts(l)} klassetilknytning(er)</div></div><div class="lib-actions"><button class="btn small" data-action="library-use" data-id="${l.id}">Brug i klassen</button><button class="btn small outline" data-action="library-edit" data-id="${l.id}">Rediger</button><button class="btn small outline" data-action="library-versions" data-id="${l.id}">Versioner</button><button class="btn small danger" data-action="library-delete" data-id="${l.id}">Slet</button></div></div></section>`}
+let libraryGradeFilter='all';
+const oldLibraryRenderTests=renderTests;
+renderTests=function(){
+ ensureLibrary();
+ const current=oldLibraryRenderTests();
+ const list=db.libraryTests.filter(l=>l.kind===activeKind&&(libraryGradeFilter==='all'||l.gradeLevel===libraryGradeFilter)).sort((a,b)=>a.gradeLevel.localeCompare(b.gradeLevel)||a.name.localeCompare(b.name,'da'));
+ const library=`<section class="card library-card"><div class="cardtop"><div><h2>Fælles prøvebibliotek</h2><p class="hint">Prøver kan genbruges på tværs af klasser og skoleår. Resultater holdes adskilt.</p></div></div><div class="lib-filter"><label for="libraryGradeFilter">Klassetrin</label><select id="libraryGradeFilter"><option value="all" ${libraryGradeFilter==='all'?'selected':''}>Alle klassetrin</option>${[7,8,9].map(g=>`<option value="${g}" ${libraryGradeFilter===String(g)?'selected':''}>${g}. klasse</option>`).join('')}</select></div>${list.length?list.map(libraryRow).join(''):'<p class="hint">Ingen gemte prøver for dette fag og klassetrin endnu.</p>'}</section>`;
+ return current.replace(/<div class="card">/,library+'<h2 style="margin:0 0 14px">Denne klasses prøver</h2><div class="card">');
+};
+const oldLibraryBind=bind;
+bind=function(){oldLibraryBind();const filter=$('#libraryGradeFilter');if(filter)filter.onchange=e=>{libraryGradeFilter=e.target.value;render()}};
+function useLibrary(id,versionNumber){
+ const l=db.libraryTests.find(x=>x.id===id);if(!l||!session())return;
+ const v=versionNumber?l.versions.find(x=>x.number===versionNumber):libraryLatest(l);
+ if(!v)return;
+ modal('Brug prøve i '+esc(session().name),`<p><strong>${esc(l.name)}</strong> · Version ${v.number}</p><p class="hint">Prøvens opgavetyper og karaktergrænser kopieres til denne klasse. Tidligere klassers resultater følger ikke med.</p><div class="field"><label>Dato (valgfri)</label><input id="libraryUseDate" type="date"><div class="hint">Kan udfyldes senere. Elevernes faktiske prøvedato registreres særskilt.</div></div>`,()=>{
+  const t={id:uid(),sessionId:selectedSession,name:v.name||l.name,date:$('#libraryUseDate').value,kind:l.kind,categories:cloneTestData(v.categories||[]).map(c=>({...c,id:uid()})),grades:cloneTestData(v.grades||[]),libraryId:l.id,libraryVersion:v.number};
+  db.tests.push(t);selectedTest=t.id;save();$('#modal').remove();page='tests';render();toast('Prøven er tilføjet klassen uden tidligere resultater');
+ },'Tilføj til klassen');
+}
+function libraryEditor(id){
+ const l=db.libraryTests.find(x=>x.id===id);if(!l)return;
+ const v=libraryLatest(l),rawCats=(v.categories||[]).map(c=>c.max?`${c.name} 0/${c.max}`:c.name).join('\n');
+ const rawGrades=(v.grades||[]).map(g=>`${g.min} - ${g.max}    ${g.grade}`).join('\n');
+ modal('Rediger prøve i biblioteket',`<div class="field"><label>Prøvens navn</label><input id="libName" value="${esc(l.name)}"></div><div class="formgrid"><div class="field"><label>Fag</label><select id="libKind"><option value="spelling" ${l.kind==='spelling'?'selected':''}>Retskrivning</option><option value="reading" ${l.kind==='reading'?'selected':''}>Læsning</option></select></div><div class="field"><label>Klassetrin</label><select id="libGrade">${[7,8,9].map(g=>`<option value="${g}" ${l.gradeLevel===String(g)?'selected':''}>${g}. klasse</option>`).join('')}</select></div></div><div class="field"><label>Opgavetyper og pointfordeling (valgfrit)</label><textarea id="libCats" rows="6" placeholder="Fx: Komma 0/10&#10;Indsætningsdiktat 0/44">${esc(rawCats)}</textarea></div><div class="field"><label>Karaktergrænser (valgfrit)</label><textarea id="libGrades" rows="6" placeholder="Fx: 0 - 10    00&#10;11 - 20    02">${esc(rawGrades)}</textarea></div><p class="hint">Hvis du ændrer opgavetyper, pointfordeling eller karaktergrænser, oprettes en ny version. Eksisterende klasser og resultater bevarer deres oprindelige prøveopsætning.</p>`,()=>{
+  const name=$('#libName').value.trim(),kind=$('#libKind').value,gradeLevel=$('#libGrade').value,raw=$('#libCats').value.trim(),gRaw=$('#libGrades').value.trim();
+  if(!name)return alert('Angiv prøvens navn.');
+  const parsed=parsePairs(raw),lines=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  if(parsed.length&&parsed.length!==lines.length)return alert('Kontrollér opgavetyperne. Brug én linje pr. opgavetype, fx Komma 0/10.');
+  const categories=parsed.length?parsed.map(x=>({id:uid(),name:x.name,max:x.max})):lines.map(x=>({id:uid(),name:x,max:0}));
+  if(new Set(categories.map(c=>norm(c.name))).size!==categories.length)return alert('Der er gentagne opgavetyper.');
+  const grades=parseGrades(gRaw);if(gRaw&&!grades.length)return alert('Karaktergrænserne blev ikke genkendt.');
+  const max=categories.reduce((sum,c)=>sum+c.max,0);if(max&&grades.length){const err=validateGrades(grades,max);if(err)return alert(err)}
+  const oldCats=(v.categories||[]).map(c=>[c.name,c.max]);const newCats=categories.map(c=>[c.name,c.max]);
+  const contentChanged=JSON.stringify(oldCats)!==JSON.stringify(newCats)||JSON.stringify(v.grades||[])!==JSON.stringify(grades)||l.kind!==kind;
+  l.name=name;l.gradeLevel=gradeLevel;l.kind=kind;
+  if(contentChanged)l.versions.push({number:v.number+1,name,categories,grades,createdAt:today()});
+  else v.name=name;
+  save();$('#modal').remove();render();toast(contentChanged?'Ny prøveversion gemt – tidligere resultater er uændrede':'Prøven er opdateret');
+ },'Gem prøve');
+}
+function showLibraryVersions(id){
+ const l=db.libraryTests.find(x=>x.id===id);if(!l)return;
+ modal('Versioner · '+esc(l.name),`<p class="hint">Hver version har sin egen prøveopsætning. Eksisterende resultater ændres aldrig.</p><div class="lib-version-list">${[...l.versions].reverse().map(v=>`<div class="lib-version"><div><strong>Version ${v.number}</strong><div class="hint">${esc(v.createdAt||'Ukendt dato')} · ${(v.categories||[]).length} opgavetyper</div></div><button class="btn small outline" data-action="library-use-version" data-id="${l.id}:${v.number}">Brug version</button></div>`).join('')}</div>`,()=>$('#modal').remove(),'Luk');
+ document.querySelectorAll('#modal [data-action="library-use-version"]').forEach(b=>b.onclick=()=>{const [id,n]=b.dataset.id.split(':');$('#modal').remove();useLibrary(id,Number(n))});
+}
+function deleteLibrary(id){const l=db.libraryTests.find(x=>x.id===id);if(!l)return;
+ if(!confirm(`Slet "${l.name}" fra det fælles prøvebibliotek?\n\nPrøver, som allerede er knyttet til klasser, og alle deres resultater bevares.`))return;
+ db.libraryTests=db.libraryTests.filter(x=>x.id!==id);db.tests.filter(t=>t.libraryId===id).forEach(t=>{delete t.libraryId;delete t.libraryVersion});save();render();toast('Prøven er fjernet fra biblioteket; klassernes data er bevaret');
+}
+const previousLibraryAction=action;
+action=function(a,id){if(a==='library-use')return useLibrary(id);if(a==='library-edit')return libraryEditor(id);if(a==='library-versions')return showLibraryVersions(id);if(a==='library-delete')return deleteLibrary(id);return previousLibraryAction(a,id)};
+// Oprettelse/redigering af klassens prøve: dato er ikke obligatorisk.
+const oldLibraryTestEditor=testEditor;
+testEditor=function(id){
+ oldLibraryTestEditor(id);
+ const date=$('#testDate')||$('#readingDate');if(date){date.value=id?(testBy(id)?.date||''):'';date.required=false;const lab=date.closest('.field')?.querySelector('label');if(lab)lab.textContent='Dato (valgfri)'}
+ const btn=$('#modalSave');if(!btn)return;
+ const oldSave=btn.onclick;
+ btn.onclick=()=>{
+  const before=new Set(db.tests.map(t=>t.id));const oldT=id?testBy(id):null;
+  oldSave();
+  const t=id?oldT:db.tests.find(x=>!before.has(x.id));if(!t||!db.tests.includes(t))return;
+  if(!t.libraryId){
+   const l={id:uid(),name:t.name,kind:kindOf(t),gradeLevel:libraryGrade(t),versions:[{number:1,name:t.name,categories:cloneTestData(t.categories||[]),grades:cloneTestData(t.grades||[]),createdAt:today()}]};
+   db.libraryTests.push(l);t.libraryId=l.id;t.libraryVersion=1;save();
+  }
+ };
+};
+// Når pointfordelingen automatisk aflæses fra første resultat,
+// udfyldes en endnu tom biblioteksskabelon uden at påvirke andre klasser.
+const originalLibrarySave=save;
+save=function(){
+ if(Array.isArray(db.libraryTests))for(const t of db.tests){
+  const l=db.libraryTests.find(x=>x.id===t.libraryId);if(!l)continue;
+  const v=l.versions.find(x=>x.number===t.libraryVersion);
+  if(v&&!(v.categories||[]).some(c=>c.max>0)&&(t.categories||[]).some(c=>c.max>0)){
+   v.categories=cloneTestData(t.categories);if(!(v.grades||[]).length)v.grades=cloneTestData(t.grades||[]);
+  }
+ }
+ return originalLibrarySave();
+};
+// Biblioteket er med i sikkerhedskopien og gendannes også ved import.
+const originalLibraryBindBackup=bindBackup;
+bindBackup=function(){originalLibraryBindBackup();const inp=$('#importBackup');if(!inp)return;
+ inp.onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{
+  const x=JSON.parse(await f.text());if(!x||!['sessions','students','tests','results'].every(k=>Array.isArray(x[k])))throw Error('Ukendt filformat');
+  if(!confirm('Erstat ALLE data i denne browser med sikkerhedskopien?'))return;
+  db={version:x.version||1,sessions:x.sessions,students:x.students,tests:x.tests,results:x.results,libraryTests:Array.isArray(x.libraryTests)?x.libraryTests:[]};
+  selectedSession=db.sessions[0]?.id||'';selectedStudent='';selectedTest='';ensureLibrary();save();render();toast('Sikkerhedskopien er gendannet, inklusive prøvebiblioteket');
+ }catch(err){alert('Filen kunne ikke indlæses: '+err.message)}};
+};
+ensureLibrary();
