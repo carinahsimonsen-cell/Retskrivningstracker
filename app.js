@@ -535,8 +535,12 @@ function classTrainingRows(){
   for(const c of t.categories||[]){
    const max=Number(c.max),error=Number(r.errors?.[c.id]);
    if(!Number.isFinite(max)||max<=0||!Number.isFinite(error)||error<0||error>max)continue;
-   const key=activeKind==='reading'?alias(c.name):alias(c.name);
-   if(!map.has(key))map.set(key,{name:c.name,totalErrors:0,totalMax:0,students:new Map()});
+   // Læseprøver sammenlignes efter tekstens position, aldrig dens titel.
+   // Dermed samles gamle 'Tekst 1' og nyere Alinea-titler i samme række.
+   const index=t.categories.indexOf(c);
+   const name=activeKind==='reading'?'Tekst '+(index+1):c.name;
+   const key=alias(name);
+   if(!map.has(key))map.set(key,{name,totalErrors:0,totalMax:0,students:new Map()});
    const row=map.get(key);row.totalErrors+=error;row.totalMax+=max;
    if(!row.students.has(r.studentId))row.students.set(r.studentId,{errors:0,max:0,tests:new Set()});
    const person=row.students.get(r.studentId);person.errors+=error;person.max+=max;person.tests.add(t.id);
