@@ -110,11 +110,37 @@ renderEntry=function(){
     <div class="field"><label>Indsæt resultat fra Alinea</label><textarea id="readingPaste" rows="8" placeholder="Fx: Unge bruger mobil på cyklen (artikel)    0/10    9/10&#10;Djævelens tre guldhår (eventyr)    0/10    10/10"></textarea>
     <div class="hint">Første pointbrøk = blanke svar, anden = rigtige svar. Rækkefølgen bestemmer Tekst 1, Tekst 2 osv. Titler og genrer bruges ikke til sammenligning.</div></div>
     <div id="readingFeedback" class="hint"></div>
-    <div id="readingRows">${cats.map((c,i)=>readingRow(c,i,r,r?.textTitles?.[i])).join('')}</div>
+    <div id="readingRows">${cats.map((c,i)=>readingRow(c,i,r,readingDisplayTitle(t,i,r))).join('')}</div>
     <div id="readingPreview"></div>
     <div class="actions">${idx<ss.length-1?'<button class="btn" id="readingSaveNext">Gem og næste elev →</button><button class="btn outline" id="readingSave">Gem resultat</button>':'<button class="btn" id="readingSave">Gem resultat</button>'}${r?'<button class="btn danger" id="readingDelete">Slet registrering</button>':''}</div>
   </section><aside class="card entry-overview"><div class="cardtop"><h2>Prøveoverblik</h2><span class="pill">${cats.reduce((sum,c)=>sum+(c.max||0),0)} point</span></div><p class="hint">${esc(t.name)} · ${esc(t.date||'Ingen dato')}</p><div class="divider"></div>${cats.length?cats.map((c,i)=>`<div class="row between" style="padding:8px 0"><span>Tekst ${i+1}</span><span class="tag">${c.max} point</span></div>`).join(''):'<p class="hint">Tekster og point fastlægges ved første gennemførte prøve.</p>'}<div class="divider"></div><h3>Registreringsstatus</h3>${ss.map(student=>{let entry=resultOf(student.id,t.id);return `<div class="row between" style="padding:6px 0"><span class="mini">${esc(student.name)}</span><span class="tag">${entry?.status?esc(statusLabel(entry.status)):entry?'✓ Registreret':'Afventer'}</span></div>`}).join('')}</aside></div>`;
 };
+// Display-only reading titles: latest library metadata can correct earlier
+// registrations without changing category IDs, points, grades or chart series.
+function libraryForReadingTest(t){
+ if(!t||kindOf(t)!=='reading')return null;
+ const all=db.libraryTests||[];
+ if(t.libraryId){const exact=all.find(l=>l.id===t.libraryId&&l.kind==='reading');if(exact)return exact;}
+ // Only infer a link when the name uniquely identifies a reading template.
+ // Never use a different class's template merely because its title is similar.
+ const same=all.filter(l=>l.kind==='reading'&&norm(l.name)===norm(t.name));
+ return same.length===1?same[0]:null;
+}
+function readingDisplayTitle(t,i,r){
+ const library=libraryForReadingTest(t);
+ const latest=library?libraryLatest(library):null;
+ const latestCat=latest?.categories?.[i];
+ const savedCat=t?.categories?.[i];
+ // Never overlay metadata from a differently structured test.
+ const matching=latestCat&&savedCat&&Number(latestCat.max)===Number(savedCat.max);
+ const title=matching?String(latestCat.name||'').trim():'';
+ const isGeneric=x=>/^tekst\s*\d+$/i.test(String(x||'').trim());
+ if(title&&!isGeneric(title))return title;
+ const recorded=String(r?.textTitles?.[i]||'').trim();
+ if(recorded&&!isGeneric(recorded))return recorded;
+ const original=String(savedCat?.name||'').trim();
+ return original&&!isGeneric(original)?original:'';
+}
 function readingRow(c,i,r,title){
   let max=c.max||0,blank=r?.blanks?.[c.id]??'',right=r&&!r.status&&r.errors?.[c.id]!==undefined?max-r.errors[c.id]:'';
   return `<div class="reading-input-row"><strong>Tekst ${i+1}${title?` – ${esc(title)}`:""}</strong><label>Blanke <input type="number" min="0" max="${max}" data-blank="${c.id}" value="${blank}"></label><label>Rigtige <input type="number" min="0" max="${max}" data-right="${c.id}" value="${right}"></label><span>af ${max}</span></div>`;
@@ -170,7 +196,7 @@ bind=function(){
       $('#readingRows').innerHTML=rows.map((x,i)=>readingRow({id:'new-'+i,max:x.max},i,null,x.name)).join('');
     }else if(rows.length!==t.categories.length||rows.some((x,i)=>x.max!==t.categories[i].max)){
       feedback.textContent='Teksternes antal eller pointfordeling passer ikke til denne prøve. Kontrollér den indsatte tekst.';
-      $('#readingRows').innerHTML=t.categories.map((c,i)=>readingRow(c,i,resultOf(selectedStudent,selectedTest),resultOf(selectedStudent,selectedTest)?.textTitles?.[i])).join('');
+      $('#readingRows').innerHTML=t.categories.map((c,i)=>readingRow(c,i,resultOf(selectedStudent,selectedTest),readingDisplayTitle(t,i,resultOf(selectedStudent,selectedTest)))).join('');
       $('#readingPaste').dataset.invalid='1';return;
     }else {feedback.textContent=`${rows.length} tekster genkendt. Kontrollér tallene nedenfor.`}
     delete $('#readingPaste').dataset.invalid;
@@ -252,7 +278,7 @@ function resultCard(r){
   let segment=(n,color)=>n>0?`<span style="background:${color};flex:${n}"></span>`:'';
   let parts=t.categories.map((cat,i)=>{
     let errors=Number(r.errors?.[cat.id]||0),b=kindOf(t)==='reading'?Number(r.blanks?.[cat.id]||0):0,right=cat.max-errors;
-    return `<div class="result-segment-row"><span>${kindOf(t)==='reading'?'Tekst '+(i+1)+(r.textTitles?.[i]?' – '+esc(r.textTitles[i]):''):esc(cat.name)}</span><div class="segbar">${segment(right,'#29956c')}${segment(errors-b,'#db9347')}${segment(b,'#b6becb')}</div><strong>${right}/${cat.max}</strong></div>`;
+    return `<div class="result-segment-row"><span>${kindOf(t)==='reading'?'Tekst '+(i+1)+(readingDisplayTitle(t,i,r)?' – '+esc(readingDisplayTitle(t,i,r)):''):esc(cat.name)}</span><div class="segbar">${segment(right,'#29956c')}${segment(errors-b,'#db9347')}${segment(b,'#b6becb')}</div><strong>${right}/${cat.max}</strong></div>`;
   }).join('');
   return `<details class="result-card"><summary><strong>${esc(t.name)}</strong> <span>${esc(r.takenDate||t.date||'')} · ${correct}/${max} · ${pct(c.percent)} · Karakter ${esc(c.grade??'—')}</span></summary>
   <div class="result-card-body"><div class="result-metrics"><div><strong>${correct}</strong><small>Rigtige</small></div><div><strong>${wrong}</strong><small>Forkerte</small></div><div><strong>${kindOf(t)==='reading'?blank:pct(c.percent)}</strong><small>${kindOf(t)==='reading'?'Blanke':'Rigtighed'}</small></div></div>
@@ -822,7 +848,7 @@ function libraryEditor(id){
  const l=db.libraryTests.find(x=>x.id===id);if(!l)return;
  const v=libraryLatest(l),rawCats=(v.categories||[]).map(c=>c.max?`${c.name} 0/${c.max}`:c.name).join('\n');
  const rawGrades=(v.grades||[]).map(g=>`${g.min} - ${g.max}    ${g.grade}`).join('\n');
- modal('Rediger prøve i biblioteket',`<div class="field"><label>Prøvens navn</label><input id="libName" value="${esc(l.name)}"></div><div class="formgrid"><div class="field"><label>Fag</label><select id="libKind"><option value="spelling" ${l.kind==='spelling'?'selected':''}>Retskrivning</option><option value="reading" ${l.kind==='reading'?'selected':''}>Læsning</option></select></div><div class="field"><label>Klassetrin</label><select id="libGrade">${[7,8,9].map(g=>`<option value="${g}" ${l.gradeLevel===String(g)?'selected':''}>${g}. klasse</option>`).join('')}</select></div></div>${providerInput("libProvider",l.provider||"")}<div class="field"><label>Opgavetyper og pointfordeling (valgfrit)</label><textarea id="libCats" rows="6" placeholder="Fx: Komma 0/10&#10;Indsætningsdiktat 0/44">${esc(rawCats)}</textarea></div><div class="field"><label>Karaktergrænser (valgfrit)</label><textarea id="libGrades" rows="6" placeholder="Fx: 0 - 10    00&#10;11 - 20    02">${esc(rawGrades)}</textarea></div><p class="hint">Ændringer bruges fremover. Eksisterende klasser og resultater bevarer deres oprindelige prøveopsætning.</p>`,()=>{
+ modal('Rediger prøve i biblioteket',`<div class="field"><label>Prøvens navn</label><input id="libName" value="${esc(l.name)}"></div><div class="formgrid"><div class="field"><label>Fag</label><select id="libKind"><option value="spelling" ${l.kind==='spelling'?'selected':''}>Retskrivning</option><option value="reading" ${l.kind==='reading'?'selected':''}>Læsning</option></select></div><div class="field"><label>Klassetrin</label><select id="libGrade">${[7,8,9].map(g=>`<option value="${g}" ${l.gradeLevel===String(g)?'selected':''}>${g}. klasse</option>`).join('')}</select></div></div>${providerInput("libProvider",l.provider||"")}<div class="field"><label>Opgavetyper og pointfordeling (valgfrit)</label><textarea id="libCats" rows="6" placeholder="Fx: Komma 0/10&#10;Indsætningsdiktat 0/44">${esc(rawCats)}</textarea></div><div class="field"><label>Karaktergrænser (valgfrit)</label><textarea id="libGrades" rows="6" placeholder="Fx: 0 - 10    00&#10;11 - 20    02">${esc(rawGrades)}</textarea></div><p class="hint">Ændringer i læseteksternes titler vises også på tidligere elevresultater. Pointfordeling og elevresultater bevares uændret. Andre ændringer gælder kun fremtidige registreringer.</p>`,()=>{
   const name=$('#libName').value.trim(),kind=$('#libKind').value,gradeLevel=$('#libGrade').value,raw=$('#libCats').value.trim(),gRaw=$('#libGrades').value.trim();
   if(!name)return alert('Angiv prøvens navn.');
   const parsed=parsePairs(raw),lines=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
@@ -1172,4 +1198,36 @@ bind=function(){
  bindBeforeProviderFilter();
  const filter=$('#libraryProviderFilter');
  if(filter)filter.onchange=()=>{libraryProviderFilter=filter.value;render()};
+};
+
+
+// Vis prøvedato fra første gemte elevregistrering, også for biblioteksprøver
+// uden dato på selve skabelonen. Ryd samtidig de overflødige KPI-tekster.
+const overviewBeforeCleanup=renderOverview;
+renderOverview=function(){
+ let html=overviewBeforeCleanup();
+ if(!session())return html;
+ // Fjern kun hele kortet "Registreringer" – ikke de øvrige nøgletal.
+ html=html.replace(/<div class="card"><div class="stat-label">Registreringer<\/div><div class="stat-value">[^<]*<\/div><div class="stat-foot">Inkl\. fravær<\/div><\/div>/,'');
+ html=html.replace(/<div class="stat-foot">Oprettet i skoleåret<\/div>/,'');
+ html=html.replace(/<div class="stat-foot">Registrerede prøver<\/div>/,'');
+ // Opdater dato-kolonnen i "Seneste prøver" ud fra gemte resultater.
+ const start=html.indexOf('<h2>Seneste prøver</h2>');
+ if(start>=0){
+  const tableStart=html.indexOf('<tbody>',start);
+  const tableEnd=html.indexOf('</tbody>',tableStart);
+  if(tableStart>=0&&tableEnd>=0){
+   const rows=[...tests()].reverse().slice(0,6);
+   let section=html.slice(tableStart,tableEnd);
+   rows.forEach(t=>{
+    const d=effectiveTestDate(t);
+    if(!d)return;
+    const needle=`<tr><td>${esc(t.name)}</td><td>${esc(t.date||'—')}</td>`;
+    const replacement=`<tr><td>${esc(t.name)}</td><td>${esc(d)}</td>`;
+    section=section.replace(needle,replacement);
+   });
+   html=html.slice(0,tableStart)+section+html.slice(tableEnd);
+  }
+ }
+ return html;
 };
