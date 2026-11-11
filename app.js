@@ -820,7 +820,7 @@ function libraryEditor(id){
  const l=db.libraryTests.find(x=>x.id===id);if(!l)return;
  const v=libraryLatest(l),rawCats=(v.categories||[]).map(c=>c.max?`${c.name} 0/${c.max}`:c.name).join('\n');
  const rawGrades=(v.grades||[]).map(g=>`${g.min} - ${g.max}    ${g.grade}`).join('\n');
- modal('Rediger prøve i biblioteket',`<div class="field"><label>Prøvens navn</label><input id="libName" value="${esc(l.name)}"></div><div class="formgrid"><div class="field"><label>Fag</label><select id="libKind"><option value="spelling" ${l.kind==='spelling'?'selected':''}>Retskrivning</option><option value="reading" ${l.kind==='reading'?'selected':''}>Læsning</option></select></div><div class="field"><label>Klassetrin</label><select id="libGrade">${[7,8,9].map(g=>`<option value="${g}" ${l.gradeLevel===String(g)?'selected':''}>${g}. klasse</option>`).join('')}</select></div></div><div class="field"><label>Opgavetyper og pointfordeling (valgfrit)</label><textarea id="libCats" rows="6" placeholder="Fx: Komma 0/10&#10;Indsætningsdiktat 0/44">${esc(rawCats)}</textarea></div><div class="field"><label>Karaktergrænser (valgfrit)</label><textarea id="libGrades" rows="6" placeholder="Fx: 0 - 10    00&#10;11 - 20    02">${esc(rawGrades)}</textarea></div><p class="hint">Ændringer bruges fremover. Eksisterende klasser og resultater bevarer deres oprindelige prøveopsætning.</p>`,()=>{
+ modal('Rediger prøve i biblioteket',`<div class="field"><label>Prøvens navn</label><input id="libName" value="${esc(l.name)}"></div><div class="formgrid"><div class="field"><label>Fag</label><select id="libKind"><option value="spelling" ${l.kind==='spelling'?'selected':''}>Retskrivning</option><option value="reading" ${l.kind==='reading'?'selected':''}>Læsning</option></select></div><div class="field"><label>Klassetrin</label><select id="libGrade">${[7,8,9].map(g=>`<option value="${g}" ${l.gradeLevel===String(g)?'selected':''}>${g}. klasse</option>`).join('')}</select></div></div>${providerInput("libProvider",l.provider||"")}<div class="field"><label>Opgavetyper og pointfordeling (valgfrit)</label><textarea id="libCats" rows="6" placeholder="Fx: Komma 0/10&#10;Indsætningsdiktat 0/44">${esc(rawCats)}</textarea></div><div class="field"><label>Karaktergrænser (valgfrit)</label><textarea id="libGrades" rows="6" placeholder="Fx: 0 - 10    00&#10;11 - 20    02">${esc(rawGrades)}</textarea></div><p class="hint">Ændringer bruges fremover. Eksisterende klasser og resultater bevarer deres oprindelige prøveopsætning.</p>`,()=>{
   const name=$('#libName').value.trim(),kind=$('#libKind').value,gradeLevel=$('#libGrade').value,raw=$('#libCats').value.trim(),gRaw=$('#libGrades').value.trim();
   if(!name)return alert('Angiv prøvens navn.');
   const parsed=parsePairs(raw),lines=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
@@ -832,7 +832,7 @@ function libraryEditor(id){
   const oldCats=(v.categories||[]).map(c=>[c.name,c.max]);const newCats=categories.map(c=>[c.name,c.max]);
   const contentChanged=JSON.stringify(oldCats)!==JSON.stringify(newCats)||JSON.stringify(v.grades||[])!==JSON.stringify(grades)||l.kind!==kind;
   confirmLibraryPoints(categories,()=>{
-  l.name=name;l.gradeLevel=gradeLevel;l.kind=kind;
+  l.name=name;l.provider=$('#libProvider').value.trim();l.gradeLevel=gradeLevel;l.kind=kind;
   if(contentChanged)l.versions.push({number:v.number+1,name,categories,grades,createdAt:today()});
   else v.name=name;
   save();$('#modal').remove();render();toast('Prøven er opdateret – tidligere resultater er uændrede');
@@ -891,9 +891,22 @@ ensureLibrary();
 // === SIKKER, BAGUDKOMPATIBEL OPRETTELSE AF PRØVER I BIBLIOTEKET ===
 // Ingen eksisterende klassetilknytninger, prøver eller resultater flyttes eller slettes.
 // Oprettelse her er helt uafhængig af valgt klasse og skoleår.
+let libraryProviderFilter='all';
+function providerNames(){
+ return [...new Set((db.libraryTests||[]).map(l=>String(l.provider||'').trim()).filter(Boolean))]
+  .sort((a,b)=>a.localeCompare(b,'da'));
+}
+function providerInput(id,value=''){
+ return `<div class="field"><label for="${id}">Prøveudbyder (valgfrit)</label><input id="${id}" list="knownTestProviders" value="${esc(value)}" placeholder="Fx: Alinea" autocomplete="off"><datalist id="knownTestProviders">${providerNames().map(x=>`<option value="${esc(x)}"></option>`).join('')}</datalist><div class="hint">Skriv en ny udbyder, eller vælg et tidligere anvendt navn. Nye navne huskes automatisk, når prøven gemmes.</div></div>`;
+}
+function providerFilterMarkup(){
+ const providers=providerNames();
+ return `<div class="field"><label for="libraryProviderFilter">Prøveudbyder</label><select id="libraryProviderFilter"><option value="all" ${libraryProviderFilter==='all'?'selected':''}>Alle udbydere</option><option value="none" ${libraryProviderFilter==='none'?'selected':''}>Uden udbyder</option>${providers.map(x=>`<option value="${esc(x)}" ${libraryProviderFilter===x?'selected':''}>${esc(x)}</option>`).join('')}</select></div>`;
+}
+function providerMatches(l){return libraryProviderFilter==='all'||(libraryProviderFilter==='none'?!String(l.provider||'').trim():String(l.provider||'').trim()===libraryProviderFilter)}
 function createStandaloneLibraryTest(){
  modal('Opret prøve i biblioteket',`<div class="formgrid"><div class="field"><label>Prøvens navn</label><input id="standaloneName" placeholder="Fx: Tandpasta og tandbørster"></div><div class="field"><label>Klassetrin</label><select id="standaloneGrade"><option value="7">7. klasse</option><option value="8">8. klasse</option><option value="9">9. klasse</option></select></div></div>
- <div class="field"><label>Opgavetyper (valgfrit)</label><textarea id="standaloneCats" rows="6" placeholder="Fx: Indsætningsdiktat&#10;Komma&#10;Fra nutid til datid"></textarea><div class="hint">Angiv eventuelt én opgavetype pr. linje. Du kan også skrive pointfordelingen som fx Komma 0/10. Manglende opgavetyper og point kan forsøges hentet fra første elevs resultat.</div></div>
+ ${providerInput("standaloneProvider")}<div class="field"><label>Opgavetyper (valgfrit)</label><textarea id="standaloneCats" rows="6" placeholder="Fx: Indsætningsdiktat&#10;Komma&#10;Fra nutid til datid"></textarea><div class="hint">Angiv eventuelt én opgavetype pr. linje. Du kan også skrive pointfordelingen som fx Komma 0/10. Manglende opgavetyper og point kan forsøges hentet fra første elevs resultat.</div></div>
  <div class="field"><label>Karaktergrænser (valgfrit)</label><textarea id="standaloneGrades" rows="5" placeholder="Fx: 0    -3&#10;1 - 22    00&#10;23 - 38    02"></textarea></div>
  <p class="hint">Prøven gemmes kun i biblioteket. Den knyttes først til en klasse, når du vælger »Brug prøve i klasse«.</p>`,()=>{
   const name=$('#standaloneName').value.trim(),gradeLevel=$('#standaloneGrade').value;
@@ -908,7 +921,7 @@ function createStandaloneLibraryTest(){
   const max=categories.reduce((a,c)=>a+c.max,0);
   if(max&&grades.length){const err=validateGrades(grades,max);if(err)return alert(err)}
   confirmLibraryPoints(categories,()=>{
-  const lib={id:uid(),name,kind:activeKind,gradeLevel,versions:[{number:1,name,categories,grades,createdAt:today()}]};
+  const lib={id:uid(),name,provider:$('#standaloneProvider').value.trim(),kind:activeKind,gradeLevel,versions:[{number:1,name,categories,grades,createdAt:today()}]};
   if(!Array.isArray(db.libraryTests))db.libraryTests=[];
   db.libraryTests.push(lib);
   if(!save()){db.libraryTests.pop();return}
@@ -1009,13 +1022,14 @@ comboChart=function(studentId){
 const focusedLibraryRow=libraryRow;
 libraryRow=function(l){
  const label=l.kind==='reading'?'Læsning':'Retskrivning';
- return `<section class="lib-row"><div class="lib-row-main"><div><strong>${esc(l.name)}</strong><div class="hint">${label} · ${esc(l.gradeLevel)}. klasse</div></div><div class="lib-actions"><button class="btn small outline" data-action="library-edit" data-id="${l.id}">Rediger</button><button class="btn small danger" data-action="library-delete" data-id="${l.id}">Slet</button></div></div></section>`;
+ return `<section class="lib-row"><div class="lib-row-main"><div><strong>${esc(l.name)}</strong><div class="hint">${label} · ${esc(l.gradeLevel)}. klasse${l.provider?` · ${esc(l.provider)}`:""}</div></div><div class="lib-actions"><button class="btn small outline" data-action="library-edit" data-id="${l.id}">Rediger</button><button class="btn small danger" data-action="library-delete" data-id="${l.id}">Slet</button></div></div></section>`;
 };
 renderTests=function(){
  ensureLibrary();
- const libs=db.libraryTests.filter(l=>l.kind===activeKind&&(libraryGradeFilter==='all'||l.gradeLevel===libraryGradeFilter)).sort((a,b)=>String(a.gradeLevel).localeCompare(String(b.gradeLevel))||a.name.localeCompare(b.name,'da'));
+ const libs=db.libraryTests.filter(l=>l.kind===activeKind&&(libraryGradeFilter==='all'||l.gradeLevel===libraryGradeFilter)&&providerMatches(l))
+  .sort((a,b)=>String(a.gradeLevel).localeCompare(String(b.gradeLevel))||a.name.localeCompare(b.name,'da'));
  return head('Prøvebibliotek','Prøveskabeloner til alle klasser og skoleår.',`<button class="btn" data-action="standalone-library-create">+ Opret prøve</button>`)+
- `<section class="card library-card"><div class="lib-filter"><label for="libraryGradeFilter">Klassetrin</label><select id="libraryGradeFilter"><option value="all" ${libraryGradeFilter==='all'?'selected':''}>Alle klassetrin</option>${[7,8,9].map(g=>`<option value="${g}" ${libraryGradeFilter===String(g)?'selected':''}>${g}. klasse</option>`).join('')}</select></div>${libs.length?libs.map(libraryRow).join(''):'<p class="hint">Ingen prøver oprettet endnu.</p>'}</section>`;
+ `<section class="card library-card"><div class="lib-filter"><div class="field"><label for="libraryGradeFilter">Klassetrin</label><select id="libraryGradeFilter"><option value="all" ${libraryGradeFilter==='all'?'selected':''}>Alle klassetrin</option>${[7,8,9].map(g=>`<option value="${g}" ${libraryGradeFilter===String(g)?'selected':''}>${g}. klasse</option>`).join('')}</select></div>${providerFilterMarkup()}</div>${libs.length?libs.map(libraryRow).join(''):'<p class="hint">Ingen prøver matcher de valgte filtre.</p>'}</section>`;
 };
 function entryLibraryOptions(){
  ensureLibrary();
@@ -1148,4 +1162,12 @@ entryLibraryOptions=function(){
  const libOption=l=>`<option value="lib:${esc(l.id)}" ${db.tests.some(t=>t._registrationDraft&&t.libraryId===l.id&&t.id===selectedTest)?'selected':''}>${esc(l.name)} (${esc(l.gradeLevel)}. klasse)</option>`;
  const group=(label,arr,format)=>arr.length?`<optgroup label="${label}">${arr.map(format).join('')}</optgroup>`:'';
  return `<div class="entry-library-chooser card"><div class="field"><label for="entryLibraryPicker">Vælg prøve til registrering</label><select id="entryLibraryPicker"><option value="">Vælg en prøve…</option>${group('Allerede anvendte prøver',used,option)}${group(grade?`Fra prøvebiblioteket – ${grade}. klasse`:'Fra prøvebiblioteket',matching,libOption)}${group('Fra prøvebiblioteket – andre klassetrin',other,libOption)}</select><div class="hint">En prøve fra biblioteket knyttes først til klassen, når du gemmer den første elevregistrering.</div></div></div>`;
+};
+
+// Bind provider filtering alongside the existing grade filter.
+const bindBeforeProviderFilter=bind;
+bind=function(){
+ bindBeforeProviderFilter();
+ const filter=$('#libraryProviderFilter');
+ if(filter)filter.onchange=()=>{libraryProviderFilter=filter.value;render()};
 };
