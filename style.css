@@ -76,3 +76,8 @@
 .admin-roster .actions{margin-top:14px}
 /* Fælles prøvebibliotek */
 .library-card{margin-bottom:20px}.lib-filter{display:flex;align-items:center;gap:12px;margin:12px 0 16px}.lib-filter select{width:auto;min-width:145px}.lib-row{border-top:1px solid #e7ebf2;padding:13px 0}.lib-row-main{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}.lib-actions{display:flex;flex-wrap:wrap;gap:6px}.lib-version{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #e7ebf2}
+
+/* Studentdiagram: fyld pladsen ved få prøver, vandret rulning ved mange. */
+.student-chart-scroll{width:100%;overflow-x:auto;max-width:100%}.student-chart-scroll svg{display:block;width:100%;max-width:none;height:auto}.unused-test-tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0}
+
+.entry-library-chooser{margin:12px 0 16px;padding:16px}.entry-library-chooser .field{margin:0}.entry-library-chooser select{width:100%;max-width:650px}
