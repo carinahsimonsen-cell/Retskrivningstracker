@@ -81,3 +81,7 @@
 .student-chart-scroll{width:100%;overflow-x:auto;max-width:100%}.student-chart-scroll svg{display:block;width:100%;max-width:none;height:auto}.unused-test-tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0}
 
 .entry-library-chooser{margin:12px 0 16px;padding:16px}.entry-library-chooser .field{margin:0}.entry-library-chooser select{width:100%;max-width:650px}
+
+.training-sort{background:none;border:0;padding:0;color:inherit;font:inherit;font-weight:inherit;cursor:pointer;text-align:inherit}
+.training-sort:hover{text-decoration:underline}
+.training-sort:focus-visible{outline:2px solid #5278d7;outline-offset:3px;border-radius:2px}
