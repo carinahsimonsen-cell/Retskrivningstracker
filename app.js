@@ -908,6 +908,12 @@ function libraryEditor(id){
   const oldCats=(v.categories||[]).map(c=>[c.name,c.max]);const newCats=categories.map(c=>[c.name,c.max]);
   const contentChanged=JSON.stringify(oldCats)!==JSON.stringify(newCats)||JSON.stringify(v.grades||[])!==JSON.stringify(grades)||l.kind!==kind;
   confirmLibraryPoints(categories,()=>{
+  // A rename is metadata, not a new assessment. Keep all class copies and
+  // historical student results, but update the displayed test name everywhere.
+  const previousName=l.name;
+  if(name!==previousName){
+    db.tests.filter(t=>t.libraryId===l.id).forEach(t=>{t.name=name});
+  }
   l.name=name;l.provider=$('#libProvider').value.trim();l.gradeLevel=gradeLevel;l.kind=kind;
   if(contentChanged)l.versions.push({number:v.number+1,name,categories,grades,createdAt:today()});
   else v.name=name;
