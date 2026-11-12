@@ -224,10 +224,15 @@ bind=function(){
     if(!t.categories.length){
       feedback.textContent=`${rows.length} tekster fundet. Pointfordelingen fastlægges, når du gemmer første resultat.`;
       $('#readingRows').innerHTML=rows.map((x,i)=>readingRow({id:'new-'+i,max:x.max},i,null,x.name)).join('');
-    }else if(rows.length!==t.categories.length||rows.some((x,i)=>x.max!==t.categories[i].max)){
+    }else if(rows.length<t.categories.length||rows.some((x,i)=>i<t.categories.length&&x.max!==Number(t.categories[i].max))){
       feedback.textContent='Teksternes antal eller pointfordeling passer ikke til denne prøve. Kontrollér den indsatte tekst.';
       $('#readingRows').innerHTML=t.categories.map((c,i)=>readingRow(c,i,resultOf(selectedStudent,selectedTest),readingDisplayTitle(t,i,resultOf(selectedStudent,selectedTest)))).join('');
       $('#readingPaste').dataset.invalid='1';return;
+    }else if(rows.length>t.categories.length){
+      // An older test may have been saved with only four categories. Add the
+      // missing input rows in the preview; preserve existing category IDs.
+      feedback.textContent=`${rows.length} tekster genkendt. Prøven har kun ${t.categories.length} gemte tekster. De manglende tilføjes, når resultatet gemmes.`;
+      $('#readingRows').innerHTML=rows.map((x,i)=>readingRow(t.categories[i]||{id:'new-'+i,max:x.max},i,i<t.categories.length?resultOf(selectedStudent,selectedTest):null,x.name)).join('');
     }else {feedback.textContent=`${rows.length} tekster genkendt. Kontrollér tallene nedenfor.`}
     delete $('#readingPaste').dataset.invalid;
     rows.forEach((x,i)=>{
@@ -254,7 +259,9 @@ function readReading(){
   if($('#readingPaste').dataset.invalid)return {error:'Resultatets pointfordeling passer ikke til prøven.'};
   let parsedResult=parseReading($('#readingPaste').value);
   if($('#readingPaste').value.trim()&&parsedResult.issues.length)return {error:'Alinea-resultatet er ufuldstændigt: '+parsedResult.issues.join(' ')};
-  let parsed=parsedResult.rows,cats=t.categories.length?t.categories:parsed.map((x,i)=>({id:'new-'+i,max:x.max,name:'Tekst '+(i+1)}));
+  let parsed=parsedResult.rows;
+  if(parsed.length&&t.categories.length&&(parsed.length<t.categories.length||parsed.some((x,i)=>i<t.categories.length&&x.max!==Number(t.categories[i].max))))return {error:'Teksternes antal eller pointfordeling passer ikke til prøven.'};
+  let cats=t.categories.concat(parsed.slice(t.categories.length).map((x,j)=>({id:'new-'+(t.categories.length+j),max:x.max,name:'Tekst '+(t.categories.length+j+1)})));
   if(!cats.length)return {error:'Indsæt først et resultat fra Alinea.'};
   let errors={},blanks={};
   for(let c of cats){
@@ -278,11 +285,16 @@ function updateReadingPreview(){
 function saveReading(next){
   let data=readReading();if(data.error)return alert(data.error);
   let t=testBy(selectedTest);
-  if(!data.status&&!t.categories.length){
-    if(!confirm('Opret denne prøves '+data.categories.length+' tekster med pointfordelingen '+data.categories.map(c=>c.max).join(', ')+'?'))return;
-    t.categories=data.categories.map((c,i)=>({id:uid(),name:'Tekst '+(i+1),max:c.max}));
-    data.errors=Object.fromEntries(t.categories.map((c,i)=>[c.id,data.errors['new-'+i]]));
-    data.blanks=Object.fromEntries(t.categories.map((c,i)=>[c.id,data.blanks['new-'+i]]));
+  if(!data.status&&data.categories.length>t.categories.length){
+    const oldCount=t.categories.length;
+    const added=data.categories.slice(oldCount);
+    if(!confirm((oldCount?'Udvid prøven fra '+oldCount+' til ':'Opret prøven med ')+data.categories.length+' tekster?\n\nPointfordeling: '+data.categories.map(c=>c.max).join(', ')+'\n\nEksisterende elevresultater bevares.'))return;
+    added.forEach((c,j)=>{
+      const i=oldCount+j,id=uid();
+      t.categories.push({id,name:'Tekst '+(i+1),max:c.max});
+      data.errors[id]=data.errors['new-'+i];data.blanks[id]=data.blanks['new-'+i];
+      delete data.errors['new-'+i];delete data.blanks['new-'+i];
+    });
   }
   delete data.categories;
   let old=resultOf(selectedStudent,selectedTest);
