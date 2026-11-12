@@ -169,35 +169,41 @@ function readingRow(c,i,r,title){
   return `<div class="reading-input-row"><strong>Tekst ${i+1}${title?` – ${esc(title)}`:""}</strong><label>Blanke <input type="number" min="0" max="${max}" data-blank="${c.id}" value="${blank}"></label><label>Rigtige <input type="number" min="0" max="${max}" data-right="${c.id}" value="${right}"></label><span>af ${max}</span></div>`;
 }
 function parseReading(raw){
-  const lines=raw.replace(/\r/g,'').split('\n').map(x=>x.replace(/\*\*/g,'').replace(/<br\s*\/?>/gi,' ').replace(/\|/g,' ').trim()).filter(Boolean);
-  const duration=(raw.match(/\b(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\b/)||[])[1]||'';
-  const out=[];
-  const fraction=/(\d+)\s*\/\s*(\d+)/g;
-  const ignore=/^(prøve|i alt|total|blanks?|rigtige svar|opgave|dato|tid|karakter)\b/i;
-  function add(name,pairs){
-    if(!name||ignore.test(name)||pairs.length!==2)return false;
-    const [blank,right]=pairs;
-    if(blank.max!==right.max||blank.max<=0||blank.n+right.n>right.max)return false;
-    out.push({name,blank:blank.n,right:right.n,max:right.max});return true;
-  }
-  for(let i=0;i<lines.length;i++){
-    const line=lines[i];
-    const matches=[...line.matchAll(fraction)];
-    const pairs=matches.map(m=>({n:+m[1],max:+m[2]}));
-    if(matches.length===2){
-      const title=line.slice(0,matches[0].index).trim();
-      if(add(title,pairs))continue;
+  const clean=String(raw||'').replace(/\r/g,'').replace(/\*\*/g,'')
+    .replace(/<br\s*\/?>/gi,'\n').replace(/\|/g,' ');
+  const duration=(clean.match(/\b(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\b/)||[])[1]||'';
+  const rows=[],issues=[];
+  // Each numbered heading begins a new section. Do not rely on the number
+  // of texts or on title/score line breaks in the copied Alinea output.
+  const heading=/\bTekst\s*(\d+)\s*:\s*/gi;
+  const found=[...clean.matchAll(heading)];
+  for(let i=0;i<found.length;i++){
+    const index=Number(found[i][1]);
+    const body=clean.slice(found[i].index+found[i][0].length,
+      i+1<found.length?found[i+1].index:clean.length);
+    const matches=[...body.matchAll(/(\d+)\s*\/\s*(\d+)/g)];
+    if(matches.length<2){
+      issues.push('Tekst '+index+' mangler '+(2-matches.length)+' pointtal fra Alinea.');
+      continue;
     }
-    // Alinea kan placere titel og point på hver sin linje.
-    // Accepter kun den umiddelbart følgende linje med præcis to pointbrøker.
-    if(matches.length===0&&!ignore.test(line)&&i+1<lines.length){
-      const next=lines[i+1];
-      const nextMatches=[...next.matchAll(fraction)];
-      const nextPairs=nextMatches.map(m=>({n:+m[1],max:+m[2]}));
-      if(nextMatches.length===2&&next.slice(0,nextMatches[0].index).trim()===''&&add(line,nextPairs))i++;
+    const [a,b]=matches;
+    const blank={n:Number(a[1]),max:Number(a[2])};
+    const right={n:Number(b[1]),max:Number(b[2])};
+    if(blank.max!==right.max||blank.max<=0||
+       blank.n+right.n>blank.max){
+      issues.push('Tekst '+index+' har en ugyldig pointfordeling.');
+      continue;
+    }
+    const name=('Tekst '+index+': '+body.slice(0,a.index).replace(/\s+/g,' ').trim()).trim();
+    rows.push({index,name,blank:blank.n,right:right.n,max:right.max});
+  }
+  if(found.length){
+    for(let i=0;i<found.length;i++){
+      const expected=i+1,actual=Number(found[i][1]);
+      if(actual!==expected)issues.push('Tekstnumrene er ikke fortløbende ved Tekst '+actual+'.');
     }
   }
-  return {rows:out,duration};
+  return {rows,duration,issues,expected:found.length};
 }
 const originalBind=bind;
 bind=function(){
@@ -212,7 +218,8 @@ bind=function(){
   $('#readingNext').onclick=()=>{if(idx<ss.length-1){selectedStudent=ss[idx+1].id;render()}};
   $('#readingStatus').onchange=updateReadingPreview;
   $('#readingPaste').oninput=()=>{
-    let {rows,duration}=parseReading($('#readingPaste').value),t=testBy(selectedTest),feedback=$('#readingFeedback');
+    let {rows,duration,issues,expected}=parseReading($('#readingPaste').value),t=testBy(selectedTest),feedback=$('#readingFeedback');
+    if(issues.length){feedback.textContent='Kun '+rows.length+' af '+expected+' tekster kunne aflæses. '+issues.join(' ');$('#readingPaste').dataset.invalid='1';return;}
     if(!rows.length){feedback.textContent='Ingen læsetekster genkendt endnu. Indsæt både blanke og rigtige svar fra Alinea.';return}
     if(!t.categories.length){
       feedback.textContent=`${rows.length} tekster fundet. Pointfordelingen fastlægges, når du gemmer første resultat.`;
@@ -245,7 +252,9 @@ function readReading(){
   let t=testBy(selectedTest),status=$('#readingStatus').value;
   if(status)return {status,errors:{},blanks:{},duration:'',takenDate:$('#readingDateTaken').value||t.date};
   if($('#readingPaste').dataset.invalid)return {error:'Resultatets pointfordeling passer ikke til prøven.'};
-  let parsed=parseReading($('#readingPaste').value).rows,cats=t.categories.length?t.categories:parsed.map((x,i)=>({id:'new-'+i,max:x.max,name:'Tekst '+(i+1)}));
+  let parsedResult=parseReading($('#readingPaste').value);
+  if($('#readingPaste').value.trim()&&parsedResult.issues.length)return {error:'Alinea-resultatet er ufuldstændigt: '+parsedResult.issues.join(' ')};
+  let parsed=parsedResult.rows,cats=t.categories.length?t.categories:parsed.map((x,i)=>({id:'new-'+i,max:x.max,name:'Tekst '+(i+1)}));
   if(!cats.length)return {error:'Indsæt først et resultat fra Alinea.'};
   let errors={},blanks={};
   for(let c of cats){
