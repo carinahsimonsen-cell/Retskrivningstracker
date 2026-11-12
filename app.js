@@ -1315,6 +1315,12 @@ render=function(){
 function classTestResultCard(t){
  const rr=results().filter(r=>r.testId===t.id);
  const valid=rr.filter(r=>computed(r));
+ const classStudentIds=new Set(students().map(s=>s.id));
+ const completedStudentIds=new Set(valid.filter(r=>classStudentIds.has(r.studentId)).map(r=>r.studentId));
+ const registeredStudentIds=new Set(rr.filter(r=>classStudentIds.has(r.studentId)).map(r=>r.studentId));
+ const withoutResult=Math.max(0,registeredStudentIds.size-completedStudentIds.size);
+ const notRegistered=Math.max(0,classStudentIds.size-registeredStudentIds.size);
+ const statusExplanation=[withoutResult?`${withoutResult} registreret uden resultat`:null,notRegistered?`${notRegistered} endnu ikke registreret`:null].filter(Boolean).join(' · ');
  const date=effectiveTestDate(t);
  const segment=(n,color)=>n>0?`<span style="background:${color};flex:${n}"></span>`:'';
  const totals=(t.categories||[]).map((cat,i)=>{
@@ -1333,8 +1339,8 @@ function classTestResultCard(t){
  const percent=total?right/total*100:NaN;
  const rows=totals.map(x=>`<div class="result-segment-row"><span>${esc(x.name)}</span><div class="segbar">${segment(x.right,'#29956c')}${segment(x.wrong,'#db9347')}${segment(x.blank,'#b6becb')}</div><strong>${x.max?`${pct(x.right/x.max*100)}`:'—'}</strong></div>`).join('');
  return `<details class="result-card class-test-card" data-class-test="${esc(t.id)}"><summary><strong>${esc(t.name)}</strong><span>${esc(dkDate(date)||'Ingen dato')} · ${valid.length} gennemført · ${pct(percent)} rigtige</span></summary>
- <div class="result-card-body"><div class="row between" style="gap:12px;flex-wrap:wrap;margin-bottom:14px"><p class="hint" style="margin:0">${valid.length} af ${students().length} elever har gennemført prøven. Resultaterne nedenfor er summeret for de gennemførte prøver.</p><button type="button" class="btn small outline" data-edit-class-test="${esc(t.id)}">Rediger prøve</button></div>
- ${valid.length?`<div class="result-metrics"><div><strong>${right}</strong><small>Rigtige</small></div><div><strong>${wrong}</strong><small>Forkerte</small></div><div><strong>${blank}</strong><small>Blanke</small></div></div><div class="segbar mainbar">${segment(right,'#29956c')}${segment(wrong,'#db9347')}${segment(blank,'#b6becb')}</div>${rows}<div class="result-legend"><span>🟩 Rigtige</span><span>🟧 Forkerte</span><span>⬜ Blanke</span></div><p class="hint">Procenten ved hver ${kindOf(t)==='reading'?'tekst':'opgavetype'} er klassens samlede rigtighed.</p>`:'<p class="hint">Ingen gennemførte elevresultater endnu.</p>'}</div></details>`;
+ <div class="result-card-body"><div class="row between" style="gap:12px;flex-wrap:wrap;margin-bottom:14px"><p class="hint" style="margin:0">${completedStudentIds.size} af ${classStudentIds.size} elever har gennemført prøven.${statusExplanation?` ${statusExplanation}. Disse elever indgår ikke i statistikken.`:''} Resultaterne nedenfor bygger kun på gennemførte prøver.</p><button type="button" class="btn small outline" data-edit-class-test="${esc(t.id)}">Rediger prøve</button></div>
+ ${valid.length?`<div class="result-metrics"><div><strong>${pct(right/total*100)}</strong><small>Rigtige</small></div><div><strong>${pct(wrong/total*100)}</strong><small>Forkerte</small></div><div><strong>${pct(blank/total*100)}</strong><small>Blanke</small></div></div><div class="segbar mainbar">${segment(right,'#29956c')}${segment(wrong,'#db9347')}${segment(blank,'#b6becb')}</div>${rows}<div class="result-legend"><span>🟩 Rigtige</span><span>🟧 Forkerte</span><span>⬜ Blanke</span></div><p class="hint">Procenten ved hver ${kindOf(t)==='reading'?'tekst':'opgavetype'} er klassens samlede rigtighed.</p>`:'<p class="hint">Ingen gennemførte elevresultater endnu.</p>'}</div></details>`;
 }
 const overviewBeforeClassTestCards=renderOverview;
 renderOverview=function(){
