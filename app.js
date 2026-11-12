@@ -1310,3 +1310,72 @@ render=function(){
   node.textContent=node.textContent.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g,(_,y,m,d)=>`${d}.${m}.${y}`);
  }
 };
+
+// Klasseoverblik: resultatkort pr. afholdt prøve. Skabeloner i biblioteket ændres ikke.
+function classTestResultCard(t){
+ const rr=results().filter(r=>r.testId===t.id);
+ const valid=rr.filter(r=>computed(r));
+ const date=effectiveTestDate(t);
+ const segment=(n,color)=>n>0?`<span style="background:${color};flex:${n}"></span>`:'';
+ const totals=(t.categories||[]).map((cat,i)=>{
+  let right=0,wrong=0,blank=0,participants=0;
+  for(const r of valid){
+   const err=Number(r.errors?.[cat.id]);
+   if(!Number.isFinite(err)||err<0||err>Number(cat.max))continue;
+   const b=kindOf(t)==='reading'?Number(r.blanks?.[cat.id]||0):0;
+   if(!Number.isFinite(b)||b<0||b>err)continue;
+   right+=Number(cat.max)-err;wrong+=err-b;blank+=b;participants++;
+  }
+  return {name:kindOf(t)==='reading'?`Tekst ${i+1}`:cat.name,right,wrong,blank,participants,max:participants*Number(cat.max)};
+ });
+ const right=totals.reduce((s,x)=>s+x.right,0),wrong=totals.reduce((s,x)=>s+x.wrong,0),blank=totals.reduce((s,x)=>s+x.blank,0);
+ const total=right+wrong+blank;
+ const percent=total?right/total*100:NaN;
+ const rows=totals.map(x=>`<div class="result-segment-row"><span>${esc(x.name)}</span><div class="segbar">${segment(x.right,'#29956c')}${segment(x.wrong,'#db9347')}${segment(x.blank,'#b6becb')}</div><strong>${x.max?`${pct(x.right/x.max*100)}`:'—'}</strong></div>`).join('');
+ return `<details class="result-card class-test-card" data-class-test="${esc(t.id)}"><summary><strong>${esc(t.name)}</strong><span>${esc(dkDate(date)||'Ingen dato')} · ${valid.length} gennemført · ${pct(percent)} rigtige</span></summary>
+ <div class="result-card-body"><div class="row between" style="gap:12px;flex-wrap:wrap;margin-bottom:14px"><p class="hint" style="margin:0">${valid.length} af ${students().length} elever har gennemført prøven. Resultaterne nedenfor er summeret for de gennemførte prøver.</p><button type="button" class="btn small outline" data-edit-class-test="${esc(t.id)}">Rediger prøve</button></div>
+ ${valid.length?`<div class="result-metrics"><div><strong>${right}</strong><small>Rigtige</small></div><div><strong>${wrong}</strong><small>Forkerte</small></div><div><strong>${blank}</strong><small>Blanke</small></div></div><div class="segbar mainbar">${segment(right,'#29956c')}${segment(wrong,'#db9347')}${segment(blank,'#b6becb')}</div>${rows}<div class="result-legend"><span>🟩 Rigtige</span><span>🟧 Forkerte</span><span>⬜ Blanke</span></div><p class="hint">Procenten ved hver ${kindOf(t)==='reading'?'tekst':'opgavetype'} er klassens samlede rigtighed.</p>`:'<p class="hint">Ingen gennemførte elevresultater endnu.</p>'}</div></details>`;
+}
+const overviewBeforeClassTestCards=renderOverview;
+renderOverview=function(){
+ const html=overviewBeforeClassTestCards();
+ if(!session())return html;
+ const tt=tests();
+ return html+`<section class="card class-test-overview"><h2>Resultatkort – hver prøve</h2><p class="hint">Åbn en prøve for at se klassens samlede resultater fordelt på ${activeKind==='reading'?'tekster':'opgavetyper'} og rette oplysninger om prøveafholdelsen.</p>${tt.length?tt.map(classTestResultCard).join(''):'<p class="hint">Ingen prøver endnu.</p>'}</section>`;
+};
+function editClassTestDetails(id){
+ const t=testBy(id);
+ if(!t||t.sessionId!==selectedSession||kindOf(t)!==activeKind)return;
+ const existing=results().filter(r=>r.testId===id);
+ const dates=[...new Set(existing.map(r=>r.takenDate).filter(Boolean))];
+ const oldDate=effectiveTestDate(t)||today();
+ modal('Rediger prøve',`<p class="hint">Ændringerne gælder kun denne klasses afholdelse – ikke prøveskabelonen i biblioteket.</p>
+ <div class="field"><label for="classTestName">Prøvens navn</label><input id="classTestName" value="${esc(t.name)}"></div>
+ <div class="field"><label for="classTestDate">Prøvedato</label><input type="date" id="classTestDate" value="${esc(oldDate)}"></div>
+ <p class="hint">${existing.length} elevregistreringer er knyttet til prøven.${dates.length>1?' Eleverne har forskellige registrerede prøvedatoer.':''} Hvis du ændrer datoen, bliver du spurgt, om alle registreringer skal opdateres.</p>`,()=>{
+  const name=$('#classTestName').value.trim(),newDate=$('#classTestDate').value;
+  if(!name)return alert('Skriv prøvens navn.');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(newDate))return alert('Vælg en gyldig prøvedato.');
+  const dateChanged=newDate!==oldDate;
+  let updateResults=false;
+  if(dateChanged&&existing.length){
+   updateResults=confirm(`Vil du ændre prøvedatoen til ${dkDate(newDate)} for alle ${existing.length} elevregistreringer på denne prøve?\n\nDet overskriver også eventuelle individuelle prøvedatoer.\n\nOK = opdater alle datoer. Annuller = afbryd uden at gemme.`);
+   if(!updateResults)return;
+  }
+  const previous={name:t.name,date:t.date,dates:existing.map(r=>r.takenDate)};
+  t.name=name;t.date=newDate;
+  if(updateResults)existing.forEach(r=>r.takenDate=newDate);
+  if(!save()){
+   t.name=previous.name;t.date=previous.date;
+   existing.forEach((r,i)=>r.takenDate=previous.dates[i]);
+   return;
+  }
+  $('#modal')?.remove();render();toast('Prøvens oplysninger er opdateret');
+ },'Gem ændringer');
+}
+document.addEventListener('click',e=>{
+ const b=e.target.closest('[data-edit-class-test]');
+ if(!b)return;
+ e.preventDefault();e.stopPropagation();
+ editClassTestDetails(b.dataset.editClassTest);
+});
