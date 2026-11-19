@@ -1385,3 +1385,60 @@ document.addEventListener('click',e=>{
  e.preventDefault();e.stopPropagation();
  editClassTestDetails(b.dataset.editClassTest);
 });
+
+// Klasseoverblik: sorterbare elevtabeller (skoleår og hver prøve).
+// Kun læsning af eksisterende data; ændrer ikke registreringer eller skabeloner.
+const studentOverviewSort={all:{key:'name',dir:1},byTest:{}};
+function studentOverviewRows(testId){
+ const ts=testId?[testBy(testId)].filter(Boolean):tests();
+ return students().map(s=>{
+  const entries=ts.map(t=>resultOf(s.id,t.id));
+  const completed=entries.map(r=>r?computed(r):null).filter(c=>c&&Number.isFinite(c.max)&&c.max>0);
+  const correct=completed.reduce((n,c)=>n+c.correct,0),max=completed.reduce((n,c)=>n+c.max,0);
+  const grades=entries.map((r,i)=>{if(!r||r.status)return null;const c=computed(r);return c?.grade!=null&&c.grade!==''&&Number.isFinite(Number(c.grade))?Number(c.grade):null}).filter(n=>n!==null);
+  const present=entries.filter(Boolean).length;
+  const status=testId?(entries[0]?.status?statusLabel(entries[0].status):completed.length?'Gennemført':entries[0]?'Uden resultat':'Ikke registreret'):(completed.length===0?(present?'Ingen gennemførte':'Ikke registreret'):'');
+  return {name:s.name,completed:completed.length,total:ts.length,percent:max?correct/max*100:null,grade:grades.length?grades.reduce((a,b)=>a+b,0)/grades.length:null,gradeLabel:testId&&grades.length?String(computed(entries[0]).grade):grades.length?fmt(grades.reduce((a,b)=>a+b,0)/grades.length):'—',status};
+ });
+}
+function studentOverviewTable(testId=''){
+ const key=testId||'all',sort=testId?(studentOverviewSort.byTest[key]||{key:'name',dir:1}):studentOverviewSort.all;
+ const rows=studentOverviewRows(testId).sort((a,b)=>{
+  let d=0;
+  if(sort.key==='name')d=a.name.localeCompare(b.name,'da');
+  else if(sort.key==='completed')d=a.completed-b.completed;
+  else if(sort.key==='percent'||sort.key==='grade'){
+   const av=a[sort.key],bv=b[sort.key];
+   if(av===null&&bv!==null)return 1;
+   if(bv===null&&av!==null)return -1;
+   d=av===null?0:av-bv;
+  }
+  return d*sort.dir||a.name.localeCompare(b.name,'da');
+ });
+ const heading=(key,label)=>`<button type="button" class="training-sort" data-student-overview-sort="${key}" data-student-overview-test="${esc(testId)}" aria-label="Sortér efter ${label}">${label}${sort.key===key?(sort.dir===1?' ↑':' ↓'):' ↕'}</button>`;
+ return `<div class="tablewrap student-overview-table" data-student-overview-table="${esc(testId||'all')}"><table><thead><tr><th>${heading('name','Elev')}</th><th class="right">${heading('completed',testId?'Gennemført':'Prøver')}</th><th class="right">${heading('percent','Rigtighed')}</th><th class="right">${heading('grade',testId?'Karakter':'Gns. karakter')}</th></tr></thead><tbody>${rows.map(r=>`<tr><td><strong>${esc(r.name)}</strong>${r.status?`<div class="hint" style="font-size:.78rem">${esc(r.status)}</div>`:''}</td><td class="right">${r.completed}/${r.total}</td><td class="right">${r.percent===null?'—':pct(r.percent)}</td><td class="right">${esc(r.gradeLabel)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+const classTestCardBeforeStudentTables=classTestResultCard;
+classTestResultCard=function(t){
+ const html=classTestCardBeforeStudentTables(t);
+ const extra=`<div class="divider"></div><h3>Elevernes resultater</h3><p class="hint">Klik på en kolonneoverskrift for at sortere eleverne.</p>${studentOverviewTable(t.id)}`;
+ return html.replace('</div></details>',extra+'</div></details>');
+};
+const overviewBeforeStudentTables=renderOverview;
+renderOverview=function(){
+ const html=overviewBeforeStudentTables();
+ if(!session())return html;
+ const section=`<section class="card"><h2>Elevernes samlede resultater</h2><p class="hint">Alle prøver i det valgte skoleår. Rigtighed beregnes ud fra samlede point; karakteren er gennemsnittet af de prøver, der har en karakter. Klik på kolonneoverskrifterne for at sortere.</p>${studentOverviewTable()}</section>`;
+ return html.replace('<section class="card class-test-overview">',section+'<section class="card class-test-overview">');
+};
+document.addEventListener('click',event=>{
+ const btn=event.target.closest('[data-student-overview-sort]');
+ if(!btn)return;
+ event.preventDefault();event.stopPropagation();
+ const id=btn.dataset.studentOverviewTest||'',key=btn.dataset.studentOverviewSort;
+ const current=id?(studentOverviewSort.byTest[id]||{key:'name',dir:1}):studentOverviewSort.all;
+ const next={key,dir:current.key===key?-current.dir:(key==='name'?1:-1)};
+ if(id)studentOverviewSort.byTest[id]=next;else studentOverviewSort.all=next;
+ const table=btn.closest('[data-student-overview-table]');
+ if(table)table.outerHTML=studentOverviewTable(id);
+});
