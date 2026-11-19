@@ -1421,14 +1421,14 @@ function studentOverviewTable(testId=''){
 const classTestCardBeforeStudentTables=classTestResultCard;
 classTestResultCard=function(t){
  const html=classTestCardBeforeStudentTables(t);
- const extra=`<div class="divider"></div><h3>Elevernes resultater</h3><p class="hint">Klik på en kolonneoverskrift for at sortere eleverne.</p>${studentOverviewTable(t.id)}`;
+ const extra=`<div class="divider"></div><details class="student-overview-disclosure"><summary style="cursor:pointer;font-weight:650;padding:12px 0">Elevernes resultater – vis oversigt</summary><p class="hint">Klik på en kolonneoverskrift for at sortere eleverne.</p>${studentOverviewTable(t.id)}</details>`;
  return html.replace('</div></details>',extra+'</div></details>');
 };
 const overviewBeforeStudentTables=renderOverview;
 renderOverview=function(){
  const html=overviewBeforeStudentTables();
  if(!session())return html;
- const section=`<section class="card"><h2>Elevernes samlede resultater</h2><p class="hint">Alle prøver i det valgte skoleår. Rigtighed beregnes ud fra samlede point; karakteren er gennemsnittet af de prøver, der har en karakter. Klik på kolonneoverskrifterne for at sortere.</p>${studentOverviewTable()}</section>`;
+ const section=`<section class="card"><details class="student-overview-disclosure"><summary style="cursor:pointer;font-weight:650;font-size:1.2rem;padding:6px 0">Elevernes samlede resultater – vis oversigt</summary><p class="hint">Alle prøver i det valgte skoleår. Rigtighed beregnes ud fra samlede point; karakteren er gennemsnittet af de prøver, der har en karakter. Klik på kolonneoverskrifterne for at sortere.</p>${studentOverviewTable()}</details></section>`;
  return html.replace('<section class="card class-test-overview">',section+'<section class="card class-test-overview">');
 };
 document.addEventListener('click',event=>{
