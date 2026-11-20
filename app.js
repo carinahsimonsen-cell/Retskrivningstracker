@@ -472,7 +472,7 @@ promote=function(id){
   };
 };
 
-$('#sessionPicker').onchange=e=>{if(!canLeave()){e.target.value=selectedSession;return}selectedSession=e.target.value;selectedStudent='';selectedTest='';render()};$('#addSessionTop').onclick=newSession;render();
+$('#sessionPicker').onchange=e=>{if(!canLeave()){e.target.value=selectedSession;return}selectedSession=e.target.value;selectedStudent='';selectedTest='';render()};$('#addSessionTop').onclick=newSession;
 
 // Fraværshuskeliste: vis kun parentes når samtlige elever er registreret,
 // men en eller flere endnu ikke har gennemført prøven.
@@ -1442,3 +1442,6 @@ document.addEventListener('click',event=>{
  const table=btn.closest('[data-student-overview-table]');
  if(table)table.outerHTML=studentOverviewTable(id);
 });
+
+// Tegn først siden, når alle udvidelser til Overblik og render er indlæst.
+render();
